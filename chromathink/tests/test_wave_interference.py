@@ -197,20 +197,20 @@ class TestWaveInterference:
         
         # Wave 1: Low frequency
         wave1 = tf.complex(
-            tf.sin(tf.linspace(0, 2*np.pi, dimensions)) * tf.ones([batch_size, dimensions]),
-            tf.cos(tf.linspace(0, 2*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.1
+            tf.sin(tf.linspace(0.0, 2*np.pi, dimensions)) * tf.ones([batch_size, dimensions]),
+            tf.cos(tf.linspace(0.0, 2*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.1
         )
         
         # Wave 2: Medium frequency
         wave2 = tf.complex(
-            tf.sin(tf.linspace(0, 6*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.7,
-            tf.cos(tf.linspace(0, 6*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.2
+            tf.sin(tf.linspace(0.0, 6*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.7,
+            tf.cos(tf.linspace(0.0, 6*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.2
         )
         
         # Wave 3: High frequency
         wave3 = tf.complex(
-            tf.sin(tf.linspace(0, 12*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.5,
-            tf.cos(tf.linspace(0, 12*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.3
+            tf.sin(tf.linspace(0.0, 12*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.5,
+            tf.cos(tf.linspace(0.0, 12*np.pi, dimensions)) * tf.ones([batch_size, dimensions]) * 0.3
         )
         
         # Test multi-wave interference
@@ -257,7 +257,7 @@ class TestWaveInterference:
         
         # Create waves with known frequency relationships
         # Wave 1: Fundamental frequency
-        t = tf.linspace(0, 2*np.pi, dimensions)
+        t = tf.linspace(0.0, 2*np.pi, dimensions)
         fundamental_freq = 1.0
         wave1 = tf.expand_dims(
             tf.complex(tf.sin(fundamental_freq * t), tf.cos(fundamental_freq * t) * 0.1),

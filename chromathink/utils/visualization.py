@@ -40,8 +40,8 @@ class ColourSpaceVisualizer:
         else:
             field = colour_field
             
-        magnitude = tf.abs(field).numpy()
-        phase = tf.angle(field).numpy()
+        magnitude = tf.math.abs(field).numpy()
+        phase = tf.math.angle(field).numpy()
         
         fig, axes = plt.subplots(2, 2, figsize=self.figsize)
         fig.suptitle(title, fontsize=14)
@@ -174,8 +174,8 @@ class ColourSpaceVisualizer:
         fig.suptitle(title, fontsize=14)
         
         # Extract data from first sample of each timestep
-        magnitudes = [tf.abs(step[0]).numpy() for step in evolution_history]
-        phases = [tf.angle(step[0]).numpy() for step in evolution_history]
+        magnitudes = [tf.math.abs(step[0]).numpy() for step in evolution_history]
+        phases = [tf.math.angle(step[0]).numpy() for step in evolution_history]
         
         # Magnitude evolution heatmap
         mag_matrix = np.stack(magnitudes, axis=0)
@@ -194,7 +194,7 @@ class ColourSpaceVisualizer:
         plt.colorbar(im2, ax=axes[0, 1])
         
         # Total power over time
-        powers = [tf.reduce_sum(tf.abs(step[0])**2).numpy() for step in evolution_history]
+        powers = [tf.reduce_sum(tf.math.abs(step[0])**2).numpy() for step in evolution_history]
         axes[1, 0].plot(powers, marker='o')
         axes[1, 0].set_title('Total Power Over Time')
         axes[1, 0].set_xlabel('Time Step')
@@ -204,7 +204,7 @@ class ColourSpaceVisualizer:
         # Spectral centroid over time
         centroids = []
         for step in evolution_history:
-            power = tf.abs(step[0])**2
+            power = tf.math.abs(step[0])**2
             freqs = tf.range(len(power), dtype=tf.float32)
             centroid = tf.reduce_sum(power * freqs) / (tf.reduce_sum(power) + 1e-8)
             centroids.append(centroid.numpy())
@@ -288,8 +288,8 @@ class ColourSpaceVisualizer:
         Returns:
             RGB array of shape [..., 3]
         """
-        magnitude = tf.abs(complex_tensor)
-        phase = tf.angle(complex_tensor)
+        magnitude = tf.math.abs(complex_tensor)
+        phase = tf.math.angle(complex_tensor)
         
         # Normalize magnitude to [0, 1]
         mag_normalized = magnitude / (tf.reduce_max(magnitude) + 1e-8)
@@ -332,7 +332,7 @@ def plot_frequency_spectrum(waveform: tf.Tensor,
     else:
         wave = waveform
     
-    magnitude = tf.abs(wave).numpy()
+    magnitude = tf.math.abs(wave).numpy()
     power = magnitude ** 2
     
     if frequencies is not None:

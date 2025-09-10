@@ -70,8 +70,8 @@ def frequency_stability_check(colour_vectors, min_variance=1e-4, max_norm=10.0):
     
     # Convert to real representation for analysis
     if colour_vectors.dtype.is_complex:
-        real_part = tf.real(colour_vectors)
-        imag_part = tf.imag(colour_vectors)
+        real_part = tf.math.real(colour_vectors)
+        imag_part = tf.math.imag(colour_vectors)
         combined = tf.concat([real_part, imag_part], axis=-1)
     else:
         combined = colour_vectors
@@ -86,8 +86,8 @@ def frequency_stability_check(colour_vectors, min_variance=1e-4, max_norm=10.0):
     
     # Frequency domain analysis
     if colour_vectors.dtype.is_complex:
-        magnitudes = tf.abs(colour_vectors)
-        phases = tf.angle(colour_vectors)
+        magnitudes = tf.math.abs(colour_vectors)
+        phases = tf.math.angle(colour_vectors)
         
         # Check for phase diversity (prevents collapse to real values)
         phase_variance = tf.reduce_mean(tf.math.reduce_variance(phases, axis=0))

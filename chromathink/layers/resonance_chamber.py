@@ -187,8 +187,8 @@ class ResonanceChamber(tf.keras.layers.Layer):
         """
         
         # Extract amplitude and phase from input
-        input_amplitude = tf.abs(inputs)
-        input_phase = tf.angle(inputs)
+        input_amplitude = tf.math.abs(inputs)
+        input_phase = tf.math.angle(inputs)
         
         # Calculate excitation of each mode
         mode_excitations = tf.matmul(input_amplitude, self.excitation_matrix)
@@ -211,7 +211,7 @@ class ResonanceChamber(tf.keras.layers.Layer):
         
         # Update standing wave memory
         if training:
-            current_amplitudes = tf.reduce_mean(tf.abs(reflected_waves), axis=0)
+            current_amplitudes = tf.reduce_mean(tf.math.abs(reflected_waves), axis=0)
             new_memory = 0.9 * self.standing_wave_memory + 0.1 * current_amplitudes
             self.standing_wave_memory.assign(new_memory)
         
@@ -285,8 +285,8 @@ class ResonanceChamber(tf.keras.layers.Layer):
     def _apply_mode_coupling(self, standing_waves):
         """Apply coupling between different modes"""
         # Convert to real for matrix multiplication
-        real_part = tf.real(standing_waves)
-        imag_part = tf.imag(standing_waves)
+        real_part = tf.math.real(standing_waves)
+        imag_part = tf.math.imag(standing_waves)
         
         # Project to mode space
         mode_real = tf.matmul(real_part, self.mode_shapes)
@@ -304,8 +304,8 @@ class ResonanceChamber(tf.keras.layers.Layer):
     
     def _apply_reflections(self, waves):
         """Apply boundary reflections with phase shifts"""
-        real_part = tf.real(waves)
-        imag_part = tf.imag(waves)
+        real_part = tf.math.real(waves)
+        imag_part = tf.math.imag(waves)
         
         # Project to mode space for reflection processing
         mode_real = tf.matmul(real_part, self.mode_shapes)
@@ -362,15 +362,15 @@ class ResonanceChamber(tf.keras.layers.Layer):
         output = self.call(inputs, training=False)
         
         # Modal decomposition
-        output_real = tf.real(output)
-        output_imag = tf.imag(output)
+        output_real = tf.math.real(output)
+        output_imag = tf.math.imag(output)
         
         mode_amplitudes_real = tf.matmul(output_real, self.mode_shapes)
         mode_amplitudes_imag = tf.matmul(output_imag, self.mode_shapes)
         mode_amplitudes = tf.sqrt(mode_amplitudes_real**2 + mode_amplitudes_imag**2)
         
         # Node locations (zeros in standing wave)
-        amplitude_magnitude = tf.abs(output)
+        amplitude_magnitude = tf.math.abs(output)
         threshold = 0.1 * tf.reduce_max(amplitude_magnitude, axis=-1, keepdims=True)
         nodes = tf.cast(amplitude_magnitude < threshold, tf.float32)
         node_count = tf.reduce_sum(nodes, axis=-1)

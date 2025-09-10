@@ -91,8 +91,8 @@ class InterferenceLayer(tf.keras.layers.Layer):
         wave1, wave2 = inputs
         
         # Extract amplitude and phase components
-        amp1, phase1 = tf.abs(wave1), tf.angle(wave1)
-        amp2, phase2 = tf.abs(wave2), tf.angle(wave2)
+        amp1, phase1 = tf.math.abs(wave1), tf.math.angle(wave1)
+        amp2, phase2 = tf.math.abs(wave2), tf.math.angle(wave2)
         
         # Apply amplitude weighting if enabled
         if self.amplitude_weighting:
@@ -144,14 +144,14 @@ class InterferenceLayer(tf.keras.layers.Layer):
         
         # Enhanced amplitude where waves align
         combined_amp = tf.sqrt(
-            amp1**2 + amp2**2 + 2 * amp1 * amp2 * tf.abs(alignment_factor)
+            amp1**2 + amp2**2 + 2 * amp1 * amp2 * tf.math.abs(alignment_factor)
         )
         
         # Average phase weighted by amplitudes
         total_amp = amp1 + amp2 + 1e-8
         combined_phase = (amp1 * phase1 + amp2 * phase2) / total_amp
         
-        return combined_amp * tf.exp(tf.complex(0.0, combined_phase))
+        return tf.cast(combined_amp, tf.complex64) * tf.exp(tf.complex(0.0, combined_phase))
     
     def _destructive_interference(self, amp1, amp2, phase1, phase2):
         """Calculate destructive interference pattern"""
@@ -161,14 +161,14 @@ class InterferenceLayer(tf.keras.layers.Layer):
         
         # Reduced amplitude where waves oppose
         combined_amp = tf.sqrt(
-            tf.nn.relu(amp1**2 + amp2**2 - 2 * amp1 * amp2 * tf.abs(opposition_factor))
+            tf.nn.relu(amp1**2 + amp2**2 - 2 * amp1 * amp2 * tf.math.abs(opposition_factor))
         )
         
         # Phase determined by stronger wave
         stronger_mask = tf.cast(amp1 > amp2, tf.float32)
         combined_phase = stronger_mask * phase1 + (1 - stronger_mask) * phase2
         
-        return combined_amp * tf.exp(tf.complex(0.0, combined_phase))
+        return tf.cast(combined_amp, tf.complex64) * tf.exp(tf.complex(0.0, combined_phase))
     
     def _full_interference(self, amp1, amp2, phase1, phase2):
         """Calculate full interference with both constructive and destructive components"""
@@ -186,16 +186,16 @@ class InterferenceLayer(tf.keras.layers.Layer):
         
         combined_phase = tf.atan2(imag_part, real_part)
         
-        return combined_amp * tf.exp(tf.complex(0.0, combined_phase))
+        return tf.cast(combined_amp, tf.complex64) * tf.exp(tf.complex(0.0, combined_phase))
     
     def _apply_nonlinear_mixing(self, linear_result, wave1, wave2):
         """Apply nonlinear mixing for richer interference patterns"""
         # Extract real and imaginary parts
-        linear_real = tf.real(linear_result)
-        linear_imag = tf.imag(linear_result)
+        linear_real = tf.math.real(linear_result)
+        linear_imag = tf.math.imag(linear_result)
         
-        wave1_real, wave1_imag = tf.real(wave1), tf.imag(wave1)
-        wave2_real, wave2_imag = tf.real(wave2), tf.imag(wave2)
+        wave1_real, wave1_imag = tf.math.real(wave1), tf.math.imag(wave1)
+        wave2_real, wave2_imag = tf.math.real(wave2), tf.math.imag(wave2)
         
         # Quadratic terms
         quad_real = self.mixing_weights[0] * (wave1_real * wave2_real - wave1_imag * wave2_imag)
@@ -234,18 +234,18 @@ class InterferenceLayer(tf.keras.layers.Layer):
         wave1, wave2 = inputs
         
         # Phase correlation
-        phase1, phase2 = tf.angle(wave1), tf.angle(wave2)
+        phase1, phase2 = tf.math.angle(wave1), tf.math.angle(wave2)
         phase_corr = tf.reduce_mean(tf.cos(phase1 - phase2), axis=-1)
         
         # Amplitude correlation
-        amp1, amp2 = tf.abs(wave1), tf.abs(wave2)
+        amp1, amp2 = tf.math.abs(wave1), tf.math.abs(wave2)
         amp_corr = tf.reduce_sum(amp1 * amp2, axis=-1) / (
             tf.sqrt(tf.reduce_sum(amp1**2, axis=-1)) * 
             tf.sqrt(tf.reduce_sum(amp2**2, axis=-1)) + 1e-8
         )
         
         # Overall interference strength
-        interference_strength = tf.abs(phase_corr) * amp_corr
+        interference_strength = tf.math.abs(phase_corr) * amp_corr
         
         return {
             'phase_correlation': phase_corr,

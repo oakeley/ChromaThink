@@ -20,7 +20,7 @@ def prevent_collapse(colour_vectors, method='entropy_regularization', strength=0
     if method == 'entropy_regularization':
         # Encourage high entropy in colour distribution
         if colour_vectors.dtype.is_complex:
-            magnitudes = tf.abs(colour_vectors)
+            magnitudes = tf.math.abs(colour_vectors)
             normalized = tf.nn.softmax(magnitudes, axis=-1)
         else:
             normalized = tf.nn.softmax(colour_vectors, axis=-1)
@@ -53,7 +53,7 @@ def prevent_collapse(colour_vectors, method='entropy_regularization', strength=0
     elif method == 'diversity_loss':
         # Encourage diversity by penalizing similar colour vectors
         if colour_vectors.dtype.is_complex:
-            vectors = tf.concat([tf.real(colour_vectors), tf.imag(colour_vectors)], axis=-1)
+            vectors = tf.concat([tf.math.real(colour_vectors), tf.math.imag(colour_vectors)], axis=-1)
         else:
             vectors = colour_vectors
             
@@ -89,14 +89,14 @@ def colour_distance(colour1, colour2, metric='spectral'):
     if metric == 'spectral':
         # Spectral distance based on magnitude and phase differences
         if colour1.dtype.is_complex and colour2.dtype.is_complex:
-            mag1, phase1 = tf.abs(colour1), tf.angle(colour1)
-            mag2, phase2 = tf.abs(colour2), tf.angle(colour2)
+            mag1, phase1 = tf.math.abs(colour1), tf.math.angle(colour1)
+            mag2, phase2 = tf.math.abs(colour2), tf.math.angle(colour2)
             
             # Magnitude difference
             mag_diff = tf.reduce_mean(tf.square(mag1 - mag2), axis=-1)
             
             # Phase difference (handle wrapping)
-            phase_diff = tf.angle(tf.exp(1j * (phase1 - phase2)))
+            phase_diff = tf.math.angle(tf.exp(tf.complex(0.0, 1.0) * tf.cast(phase1 - phase2, tf.complex64)))
             phase_dist = tf.reduce_mean(tf.square(phase_diff), axis=-1)
             
             return tf.sqrt(mag_diff + phase_dist)
@@ -107,8 +107,8 @@ def colour_distance(colour1, colour2, metric='spectral'):
     elif metric == 'phase':
         # Phase-only distance for complex vectors
         if colour1.dtype.is_complex and colour2.dtype.is_complex:
-            phase1, phase2 = tf.angle(colour1), tf.angle(colour2)
-            phase_diff = tf.angle(tf.exp(1j * (phase1 - phase2)))
+            phase1, phase2 = tf.math.angle(colour1), tf.math.angle(colour2)
+            phase_diff = tf.math.angle(tf.exp(tf.complex(0.0, 1.0) * tf.cast(phase1 - phase2, tf.complex64)))
             return tf.reduce_mean(tf.square(phase_diff), axis=-1)
         else:
             raise ValueError("Phase distance only available for complex vectors")
@@ -116,8 +116,8 @@ def colour_distance(colour1, colour2, metric='spectral'):
     elif metric == 'wasserstein':
         # Approximate Wasserstein distance for colour distributions
         if colour1.dtype.is_complex:
-            dist1 = tf.nn.softmax(tf.abs(colour1), axis=-1)
-            dist2 = tf.nn.softmax(tf.abs(colour2), axis=-1)
+            dist1 = tf.nn.softmax(tf.math.abs(colour1), axis=-1)
+            dist2 = tf.nn.softmax(tf.math.abs(colour2), axis=-1)
         else:
             dist1 = tf.nn.softmax(colour1, axis=-1)
             dist2 = tf.nn.softmax(colour2, axis=-1)
@@ -154,20 +154,20 @@ def colour_interpolation(colour1, colour2, alpha, method='linear'):
         # Spherical linear interpolation (SLERP)
         if colour1.dtype.is_complex and colour2.dtype.is_complex:
             # Normalize to unit circle
-            norm1 = colour1 / (tf.abs(colour1) + 1e-8)
-            norm2 = colour2 / (tf.abs(colour2) + 1e-8)
+            norm1 = colour1 / (tf.math.abs(colour1) + 1e-8)
+            norm2 = colour2 / (tf.math.abs(colour2) + 1e-8)
             
             # Calculate angle between them
-            dot_product = tf.real(norm1 * tf.conj(norm2))
+            dot_product = tf.math.real(norm1 * tf.math.conj(norm2))
             dot_product = tf.clip_by_value(dot_product, -1.0, 1.0)
-            omega = tf.acos(tf.abs(dot_product))
+            omega = tf.acos(tf.math.abs(dot_product))
             
             # SLERP formula
             sin_omega = tf.sin(omega)
             interp = (tf.sin((1-alpha) * omega) * norm1 + tf.sin(alpha * omega) * norm2) / (sin_omega + 1e-8)
             
             # Interpolate magnitudes linearly
-            mag1, mag2 = tf.abs(colour1), tf.abs(colour2)
+            mag1, mag2 = tf.math.abs(colour1), tf.math.abs(colour2)
             interp_mag = (1 - alpha) * mag1 + alpha * mag2
             
             return interp * interp_mag
@@ -178,7 +178,7 @@ def colour_interpolation(colour1, colour2, alpha, method='linear'):
             
             dot_product = tf.reduce_sum(norm1 * norm2, axis=-1, keepdims=True)
             dot_product = tf.clip_by_value(dot_product, -1.0, 1.0)
-            omega = tf.acos(tf.abs(dot_product))
+            omega = tf.acos(tf.math.abs(dot_product))
             
             sin_omega = tf.sin(omega)
             interp = (tf.sin((1-alpha) * omega) * norm1 + tf.sin(alpha * omega) * norm2) / (sin_omega + 1e-8)
@@ -193,8 +193,8 @@ def colour_interpolation(colour1, colour2, alpha, method='linear'):
     elif method == 'frequency':
         # Interpolate in frequency domain with proper phase handling
         if colour1.dtype.is_complex and colour2.dtype.is_complex:
-            mag1, phase1 = tf.abs(colour1), tf.angle(colour1)
-            mag2, phase2 = tf.abs(colour2), tf.angle(colour2)
+            mag1, phase1 = tf.math.abs(colour1), tf.math.angle(colour1)
+            mag2, phase2 = tf.math.abs(colour2), tf.math.angle(colour2)
             
             # Interpolate magnitudes logarithmically
             log_mag1 = tf.math.log(mag1 + 1e-8)
@@ -203,10 +203,10 @@ def colour_interpolation(colour1, colour2, alpha, method='linear'):
             interp_mag = tf.exp(interp_log_mag)
             
             # Interpolate phases (shortest path on circle)
-            phase_diff = tf.angle(tf.exp(1j * (phase2 - phase1)))
+            phase_diff = tf.math.angle(tf.exp(tf.complex(0.0, 1.0) * tf.cast(phase2 - phase1, tf.complex64)))
             interp_phase = phase1 + alpha * phase_diff
             
-            return interp_mag * tf.exp(1j * interp_phase)
+            return interp_mag * tf.exp(tf.complex(0.0, 1.0) * tf.cast(interp_phase, tf.complex64))
         else:
             # Fall back to linear for real vectors
             return (1 - alpha) * colour1 + alpha * colour2

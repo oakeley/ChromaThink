@@ -177,7 +177,7 @@ class ChromaticResonance(tf.keras.layers.Layer):
         
         # Update resonance memory (exponential moving average)
         if training:
-            current_memory = tf.reduce_mean(tf.abs(final_resonance), axis=0)
+            current_memory = tf.reduce_mean(tf.math.abs(final_resonance), axis=0)
             new_memory = (self.memory_decay * self.resonance_memory + 
                          (1 - self.memory_decay) * current_memory)
             self.resonance_memory.assign(new_memory)
@@ -208,13 +208,13 @@ class ChromaticResonance(tf.keras.layers.Layer):
             if order == 1:
                 harmonic = harmonic_wave
             elif order == 2:
-                harmonic = harmonic_wave * tf.conj(harmonic_wave)
+                harmonic = harmonic_wave * tf.math.conj(harmonic_wave)
             elif order == 3:
-                harmonic = harmonic_wave * tf.conj(harmonic_wave) * harmonic_wave
+                harmonic = harmonic_wave * tf.math.conj(harmonic_wave) * harmonic_wave
             else:
                 # General case using magnitude and phase
-                magnitude = tf.abs(harmonic_wave)
-                phase = tf.angle(harmonic_wave)
+                magnitude = tf.math.abs(harmonic_wave)
+                phase = tf.math.angle(harmonic_wave)
                 
                 # Scale magnitude and multiply phase
                 harmonic_mag = tf.pow(magnitude, 1.0/order)  # Prevent explosion
@@ -234,8 +234,8 @@ class ChromaticResonance(tf.keras.layers.Layer):
     
     def _apply_nonlinearity(self, wave):
         """Apply nonlinear activation to complex wave"""
-        real_part = tf.real(wave)
-        imag_part = tf.imag(wave)
+        real_part = tf.math.real(wave)
+        imag_part = tf.math.imag(wave)
         
         # Scale and bias
         scaled_real = real_part * self.mixing_scale + self.mixing_bias
@@ -280,7 +280,7 @@ class ChromaticResonance(tf.keras.layers.Layer):
         # Weighted sum of resonances
         weighted_resonances = []
         for i, resonance in enumerate(resonance_history):
-            weighted_resonances.append(resonance * weights[i])
+            weighted_resonances.append(resonance * tf.cast(weights[i], resonance.dtype))
         
         return tf.reduce_sum(tf.stack(weighted_resonances), axis=0)
     
@@ -297,7 +297,7 @@ class ChromaticResonance(tf.keras.layers.Layer):
         output = self.call(inputs, training=False)
         
         # Quality factor (sharpness of resonance)
-        magnitude = tf.abs(output)
+        magnitude = tf.math.abs(output)
         peak_magnitude = tf.reduce_max(magnitude, axis=-1)
         mean_magnitude = tf.reduce_mean(magnitude, axis=-1)
         q_factor = peak_magnitude / (mean_magnitude + 1e-8)
@@ -307,7 +307,7 @@ class ChromaticResonance(tf.keras.layers.Layer):
         
         # Harmonic richness
         fft_output = tf.signal.fft(output)
-        power_spectrum = tf.abs(fft_output) ** 2
+        power_spectrum = tf.math.abs(fft_output) ** 2
         total_power = tf.reduce_sum(power_spectrum, axis=-1)
         fundamental_power = power_spectrum[..., :self.dimensions//4]  # Lower frequencies
         harmonic_ratio = tf.reduce_sum(fundamental_power, axis=-1) / (total_power + 1e-8)

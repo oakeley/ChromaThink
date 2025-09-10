@@ -30,7 +30,7 @@ class TestChromaticMixing:
         green_freq = 2.0
         blue_freq = 3.0
         
-        t = tf.linspace(0, 2*np.pi, dimensions)
+        t = tf.linspace(0.0, 2*np.pi, dimensions)
         
         # Red: Low frequency, high amplitude
         red_colour = tf.complex(
@@ -178,7 +178,7 @@ class TestChromaticMixing:
         batch_size, dimensions = 2, 64
         
         # Create complementary colours (opposite phases)
-        base_pattern = tf.sin(tf.linspace(0, 4*np.pi, dimensions))
+        base_pattern = tf.sin(tf.linspace(0.0, 4*np.pi, dimensions))
         
         colour1 = tf.complex(
             tf.expand_dims(base_pattern, 0) * tf.ones([batch_size, dimensions]),
@@ -288,7 +288,7 @@ class TestChromaticMixing:
         batch_size, dimensions = 2, 64
         
         # Create colours with very different amplitudes
-        base_pattern = tf.sin(tf.linspace(0, 2*np.pi, dimensions))
+        base_pattern = tf.sin(tf.linspace(0.0, 2*np.pi, dimensions))
         
         weak_colour = tf.complex(
             tf.expand_dims(base_pattern, 0) * tf.ones([batch_size, dimensions]) * 0.01,  # Very weak

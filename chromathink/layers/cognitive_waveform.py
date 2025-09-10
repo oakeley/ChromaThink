@@ -131,8 +131,8 @@ class CognitiveWaveform(tf.keras.layers.Layer):
         # Apply spectral normalization if enabled
         if self.spectral_normalize and hasattr(self, 'spectral_normalizer'):
             # Convert complex to real for normalization
-            real_part = tf.real(result)
-            imag_part = tf.imag(result)
+            real_part = tf.math.real(result)
+            imag_part = tf.math.imag(result)
             
             normalized_real = self.spectral_normalizer(real_part)
             normalized_imag = self.spectral_normalizer(imag_part)
@@ -154,8 +154,8 @@ class CognitiveWaveform(tf.keras.layers.Layer):
         waveform = self.call(inputs, training=False)
         
         # Extract magnitude and phase
-        magnitude = tf.abs(waveform)
-        phase = tf.angle(waveform)
+        magnitude = tf.math.abs(waveform)
+        phase = tf.math.angle(waveform)
         
         # Power spectral density
         power = tf.square(magnitude)
