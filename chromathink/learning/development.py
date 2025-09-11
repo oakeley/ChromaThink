@@ -310,6 +310,7 @@ class DevelopmentalLearning:
         # Convert to complex representation
         colour_tensor = tf.constant(colour_features, dtype=tf.float32)
         colour_tensor = tf.expand_dims(colour_tensor, 0)  # Add batch dimension
+        colour_tensor = tf.cast(colour_tensor, tf.complex64)  # Convert to complex
         
         # Process through cognitive spectrum to get proper colour representation
         colour_representation = self.cognitive_spectrum(colour_tensor, training=False)
@@ -325,16 +326,30 @@ class DevelopmentalLearning:
         # Calculate how much the response resonates with the question
         resonance = self.calculate_resonance(question_colour, response_colour)
         
-        # Stronger resonance means more integration
-        integration_strength = self.chromatic_plasticity * resonance
+        # Stronger resonance means more integration  
+        integration_strength = float(self.chromatic_plasticity) * resonance
         
         # Blend response into current state
-        new_state = (1 - integration_strength) * current_state + \
+        # Cast integration strength to complex if needed
+        if current_state.dtype.is_complex:
+            integration_strength = tf.cast(integration_strength, current_state.dtype)
+            blend_factor = tf.cast(1 - integration_strength, current_state.dtype)
+            harmonic_factor = tf.cast(0.1, current_state.dtype)
+        else:
+            blend_factor = 1 - integration_strength
+            harmonic_factor = 0.1
+            
+        new_state = blend_factor * current_state + \
                     integration_strength * response_colour
         
         # Add harmonic overtones from the learning
         harmonics = self.generate_harmonics(question_colour, response_colour)
-        new_state = new_state + 0.1 * harmonics
+        
+        # Ensure harmonics have the same dtype as new_state
+        if new_state.dtype != harmonics.dtype:
+            harmonics = tf.cast(harmonics, new_state.dtype)
+            
+        new_state = new_state + harmonic_factor * harmonics
         
         return new_state
     
@@ -356,11 +371,14 @@ class DevelopmentalLearning:
         if question_colour.dtype.is_complex and response_colour.dtype.is_complex:
             # Complex interference creates natural harmonics
             harmonic = question_colour * tf.math.conj(response_colour)
-            harmonic = harmonic / (tf.math.abs(harmonic) + 1e-8)  # Normalize
+            # Cast epsilon to match harmonic dtype
+            epsilon = tf.cast(1e-8, harmonic.dtype)
+            harmonic = harmonic / (tf.math.abs(harmonic) + epsilon)  # Normalize
         else:
             # For real signals, create harmonic through multiplication
             harmonic = question_colour * response_colour
-            harmonic = harmonic / (tf.reduce_max(tf.math.abs(harmonic)) + 1e-8)
+            epsilon = tf.cast(1e-8, harmonic.dtype)
+            harmonic = harmonic / (tf.reduce_max(tf.math.abs(harmonic)) + epsilon)
         
         return harmonic
     

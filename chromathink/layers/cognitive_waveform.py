@@ -100,8 +100,14 @@ class CognitiveWaveform(tf.keras.layers.Layer):
         """
         
         # Project to amplitude and phase spaces
-        amplitude_raw = tf.matmul(inputs, self.amplitude_projection)
-        phase_raw = tf.matmul(inputs, self.phase_projection)
+        # Handle complex inputs by using real part for projections
+        if inputs.dtype.is_complex:
+            real_inputs = tf.math.real(inputs)
+            amplitude_raw = tf.matmul(real_inputs, self.amplitude_projection)
+            phase_raw = tf.matmul(real_inputs, self.phase_projection)
+        else:
+            amplitude_raw = tf.matmul(inputs, self.amplitude_projection)
+            phase_raw = tf.matmul(inputs, self.phase_projection)
         
         # Apply nonlinear activations
         # Amplitude should be positive
