@@ -607,11 +607,9 @@ Once the basic system works, we explore the unstable regions of colour space whe
 
 This architecture suggests consciousness might be more like a symphony than a sentence parallel harmonies rather than sequential tokens. If successful, it would demonstrate that intelligence doesn't require language as a fundamental substrate. Language becomes just one possible projection of a richer, continuous thought-space.
 
-The conservation of colour patterns across different tasks would support theories of a unified cognitive architecture. Whether processing vision, sound, or abstract mathematics, the same chromatic dynamics apply. This isn't just more efficient it suggests something profound about the nature of understanding itself.
+The conservation of colour patterns across different tasks would support theories of a unified cognitive architecture. Whether processing vision, sound, or abstract mathematics, the same chromatic dynamics apply. This isn't just more efficient it might be a clue towards understanding "understanding" itself.
 
-## 🚀 **REAL IMPLEMENTATION NOW AVAILABLE**
-
-**ChromaThink is no longer just a concept—it's a working system with real 8B parameter Apertus model integration!**
+**Proof-of-concept cheat implemented to learn associations from the pre-trained 8B parameter ETHZ-Apertus model**
 
 ### Installation and Setup
 
@@ -647,12 +645,12 @@ python examples/developmental_learning_minimal_demo.py
 # Resonance: 0.156, Development: 0.009
 ```
 
-### 🧠 **Revolutionary Bootstrap with Real Apertus Model**
+### 🧠 **Bootstrap with Apertus Model**
 
-The breakthrough feature: ChromaThink can now bootstrap from the **real 8.05B parameter Apertus model** through "chromesthetic" weight translation:
+The breakthrough feature: ChromaThink can now bootstrap from the **8.05B parameter Apertus model** so long as you put the safetensor files in models/apertus. It then applies a "chromesthetic" weight translation to observe colour associations in the model and learn from them:
 
 ```bash
-# Bootstrap ChromaThink with real Apertus knowledge
+# Bootstrap ChromaThink with Apertus knowledge
 python bootstrap_chromathink.py --demo
 
 # This will:
