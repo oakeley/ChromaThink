@@ -221,7 +221,7 @@ class ChromaticMemory(tf.keras.Model):
         )
         
         for i, existing_memory in enumerate(all_memories):
-            if i != memory_idx and i < len(self.association_weights):
+            if i != memory_idx and i < tf.shape(self.association_weights)[0]:
                 # Calculate natural association strength
                 similarity = 1.0 - colour_distance(
                     memory_trace, 

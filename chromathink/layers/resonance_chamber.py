@@ -179,22 +179,40 @@ class ResonanceChamber(tf.keras.layers.Layer):
         Create standing wave patterns in the resonance chamber
         
         Args:
-            inputs: Complex waveform input
+            inputs: Complex waveform input or list of waveform inputs
             training: Training mode flag
             
         Returns:
             Standing wave pattern output
         """
         
+        # Handle multiple inputs by combining them
+        if isinstance(inputs, (list, tuple)):
+            # Ensure all inputs have compatible shapes
+            processed_inputs = []
+            target_ndim = max(len(inp.shape) for inp in inputs)
+            
+            for inp in inputs:
+                # Expand dimensions to match the highest-dimensional input
+                while len(inp.shape) < target_ndim:
+                    inp = tf.expand_dims(inp, axis=1)
+                processed_inputs.append(inp)
+            
+            # Stack inputs along a new axis and then sum them for interference
+            stacked_inputs = tf.stack(processed_inputs, axis=0)
+            combined_input = tf.reduce_sum(stacked_inputs, axis=0)
+        else:
+            combined_input = inputs
+        
         # Extract amplitude and phase from input
-        input_amplitude = tf.math.abs(inputs)
-        input_phase = tf.math.angle(inputs)
+        input_amplitude = tf.math.abs(combined_input)
+        input_phase = tf.math.angle(combined_input)
         
         # Calculate excitation of each mode
         mode_excitations = tf.matmul(input_amplitude, self.excitation_matrix)
         
         # Apply resonant frequency response
-        frequency_response = self._calculate_frequency_response(inputs)
+        frequency_response = self._calculate_frequency_response(combined_input)
         excited_modes = mode_excitations * frequency_response
         
         # Create standing wave patterns
