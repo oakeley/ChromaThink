@@ -111,7 +111,7 @@ class CognitiveWaveform(tf.keras.layers.Layer):
         phase = tf.nn.sigmoid(phase_raw * self.phase_scale) * 2 * np.pi
         
         # Create complex waveform
-        waveform = amplitude * tf.exp(tf.complex(tf.constant(0.0), phase))
+        waveform = tf.cast(amplitude, tf.complex64) * tf.exp(tf.complex(tf.constant(0.0), phase))
         
         # Apply frequency modulation
         modulated_frequencies = self.frequencies * self.frequency_modulation
@@ -128,16 +128,9 @@ class CognitiveWaveform(tf.keras.layers.Layer):
             # Direct frequency modulation
             result = waveform * frequency_terms
         
-        # Apply spectral normalization if enabled
-        if self.spectral_normalize and hasattr(self, 'spectral_normalizer'):
-            # Convert complex to real for normalization
-            real_part = tf.math.real(result)
-            imag_part = tf.math.imag(result)
-            
-            normalized_real = self.spectral_normalizer(real_part)
-            normalized_imag = self.spectral_normalizer(imag_part)
-            
-            result = tf.complex(normalized_real, normalized_imag)
+        # Apply simple normalization (spectral normalizer disabled for compatibility)
+        if self.spectral_normalize:
+            result = tf.nn.l2_normalize(result, axis=-1)
         
         return result
     

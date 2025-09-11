@@ -199,6 +199,11 @@ class ChromaticResonance(tf.keras.layers.Layer):
         """Generate harmonic frequencies of the input wave"""
         harmonics = []
         
+        # Ensure layer is built
+        if not hasattr(self, 'harmonic_matrices') or not self.harmonic_matrices:
+            # Build the layer if not already built
+            self.build(wave.shape)
+        
         for order in self.harmonic_orders:
             # Apply harmonic transformation matrix
             harmonic_matrix = tf.cast(self.harmonic_matrices[order], wave.dtype)
@@ -220,7 +225,7 @@ class ChromaticResonance(tf.keras.layers.Layer):
                 harmonic_mag = tf.pow(magnitude, 1.0/order)  # Prevent explosion
                 harmonic_phase = phase * tf.cast(order, tf.float32)
                 
-                harmonic = harmonic_mag * tf.exp(tf.complex(0.0, harmonic_phase))
+                harmonic = tf.cast(harmonic_mag, tf.complex64) * tf.exp(tf.complex(0.0, harmonic_phase))
             
             # Weight by harmonic strength (higher orders typically weaker)
             weight = 1.0 / (order * order)

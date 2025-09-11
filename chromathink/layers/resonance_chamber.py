@@ -278,7 +278,7 @@ class ResonanceChamber(tf.keras.layers.Layer):
         )
         
         # Combine into complex standing wave
-        standing_waves = standing_amplitudes * tf.exp(tf.complex(0.0, standing_phases))
+        standing_waves = tf.cast(standing_amplitudes, tf.complex64) * tf.exp(tf.complex(0.0, standing_phases))
         
         return standing_waves
     
