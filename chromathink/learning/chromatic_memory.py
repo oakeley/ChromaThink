@@ -53,8 +53,17 @@ class ChromaticMemory(tf.keras.Model):
             trainable=False
         )
         
+        # Alias for association matrix (for compatibility)
+        self.association_matrix = self.association_weights
+        
+        # Memory field for storing colour patterns (for compatibility)
+        self.memory_field = tf.Variable(
+            tf.zeros([memory_capacity, spectrum_dims], dtype=tf.complex64),
+            trainable=False
+        )
+        
         # Current memory index
-        self.memory_index = 0
+        self.memory_index = tf.Variable(0, trainable=False)
     
     def store_association(self, 
                          question_colour, 
@@ -91,19 +100,30 @@ class ChromaticMemory(tf.keras.Model):
             memory_bank = self.emotional_memory
         
         # Store memory
+        current_index = int(self.memory_index.numpy())
         memory_entry = {
             'question': tf.identity(question_colour),
             'response': tf.identity(response_colour),
             'trace': tf.identity(memory_trace),
             'strength': float(strength),
             'type': memory_type,
-            'timestamp': self.memory_index
+            'timestamp': current_index
         }
+        
+        # Also store in memory field for compatibility
+        if current_index < self.memory_capacity:
+            if response_colour.dtype == tf.complex64:
+                self.memory_field[current_index].assign(tf.squeeze(response_colour))
+            else:
+                # Convert real to complex
+                real_part = tf.cast(tf.squeeze(response_colour), tf.float32)
+                complex_memory = tf.cast(real_part, tf.complex64)
+                self.memory_field[current_index].assign(complex_memory)
         
         memory_bank.append(memory_entry)
         self.memory_strengths.append(strength)
         self.access_counts.append(0)
-        self.last_accessed.append(self.memory_index)
+        self.last_accessed.append(current_index)
         
         # Update association network
         self._update_associations(len(memory_bank) - 1, memory_trace)
@@ -112,9 +132,47 @@ class ChromaticMemory(tf.keras.Model):
         if len(memory_bank) > self.memory_capacity // 3:  # Each bank gets 1/3 capacity
             self._consolidate_or_forget(memory_bank)
         
-        self.memory_index += 1
+        # Increment memory index
+        self.memory_index.assign(current_index + 1)
         
         return memory_entry
+    
+    def recall(self, 
+               query_colour, 
+               num_memories=5, 
+               memory_type=None,
+               similarity_threshold=0.3):
+        """
+        Recall memories similar to query colour (alias for retrieve_similar).
+        
+        Args:
+            query_colour: Colour to search for
+            num_memories: Number of memories to return
+            memory_type: Type of memory to search (None for all)
+            similarity_threshold: Minimum similarity threshold
+        
+        Returns:
+            List of tuples: [(resonance, memory_colour, memory_index), ...]
+        """
+        
+        retrieved = self.retrieve_similar(
+            query_colour=query_colour,
+            memory_type=memory_type,
+            top_k=num_memories,
+            similarity_threshold=similarity_threshold
+        )
+        
+        # Convert to expected format: (resonance, memory_colour, index)
+        result = []
+        for i, candidate in enumerate(retrieved):
+            memory = candidate['memory']
+            resonance = candidate['similarity']
+            memory_colour = memory['response']  # Use response colour as the recalled pattern
+            memory_index = candidate['index']
+            
+            result.append((resonance, memory_colour, memory_index))
+        
+        return result
     
     def retrieve_similar(self, 
                         query_colour, 
@@ -167,6 +225,9 @@ class ChromaticMemory(tf.keras.Model):
                     0.4 * r_similarity + 
                     0.2 * trace_similarity
                 ) * memory['strength']
+                
+                # Convert to scalar for comparison
+                combined_similarity = float(tf.reduce_mean(combined_similarity))
                 
                 if combined_similarity > similarity_threshold:
                     candidates.append({
@@ -229,8 +290,11 @@ class ChromaticMemory(tf.keras.Model):
                     metric='spectral'
                 )
                 
-                if similarity > 0.5:  # Only create strong associations
-                    association_strength = (similarity - 0.5) * 2.0  # Scale to 0-1
+                # Convert to scalar for comparison
+                similarity_scalar = float(tf.reduce_mean(similarity))
+                
+                if similarity_scalar > 0.5:  # Only create strong associations
+                    association_strength = (similarity_scalar - 0.5) * 2.0  # Scale to 0-1
                     
                     current_weight = self.association_weights[memory_idx, i].numpy()
                     new_weight = min(1.0, current_weight + association_strength * 0.1)
@@ -243,7 +307,7 @@ class ChromaticMemory(tf.keras.Model):
         
         if memory_idx < len(self.access_counts):
             self.access_counts[memory_idx] += 1
-            self.last_accessed[memory_idx] = self.memory_index
+            self.last_accessed[memory_idx] = int(self.memory_index.numpy())
             
             # Strengthen frequently accessed memories
             if self.access_counts[memory_idx] > 3:
@@ -264,7 +328,7 @@ class ChromaticMemory(tf.keras.Model):
         
         # Calculate memory importance scores
         importance_scores = []
-        current_time = self.memory_index
+        current_time = int(self.memory_index.numpy())
         
         for i, memory in enumerate(memory_bank):
             # Factors: strength, recency, access frequency
@@ -386,9 +450,11 @@ class ChromaticMemory(tf.keras.Model):
             'semantic_count': len(self.semantic_memory),
             'emotional_count': len(self.emotional_memory),
             'average_strength': float(avg_strength),
+            'memory_usage': total_memories / self.memory_capacity,  # Alias for compatibility
             'memory_utilization': total_memories / self.memory_capacity,
             'consolidation_ratio': consolidated_count / max(1, total_memories),
-            'association_density': float(tf.reduce_mean(tf.math.abs(self.association_weights)))
+            'association_density': float(tf.reduce_mean(tf.math.abs(self.association_weights))),
+            'avg_association_strength': float(tf.reduce_mean(tf.math.abs(self.association_weights)))
         }
     
     def reset_memory(self):
@@ -400,4 +466,5 @@ class ChromaticMemory(tf.keras.Model):
         self.access_counts.clear()
         self.last_accessed.clear()
         self.association_weights.assign(tf.zeros_like(self.association_weights))
-        self.memory_index = 0
+        self.memory_field.assign(tf.zeros_like(self.memory_field))
+        self.memory_index.assign(0)

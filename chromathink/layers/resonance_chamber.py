@@ -208,11 +208,27 @@ class ResonanceChamber(tf.keras.layers.Layer):
         input_amplitude = tf.math.abs(combined_input)
         input_phase = tf.math.angle(combined_input)
         
-        # Calculate excitation of each mode
-        mode_excitations = tf.matmul(input_amplitude, self.excitation_matrix)
+        # Calculate excitation of each mode with proper dtype handling
+        # Handle input dimension compatibility
+        if input_amplitude.shape[-1] != self.dimensions:
+            # Adapt input to match expected dimensions
+            if input_amplitude.shape[-1] > self.dimensions:
+                # Truncate
+                input_amplitude = input_amplitude[..., :self.dimensions]
+            else:
+                # Pad with zeros
+                padding_size = self.dimensions - input_amplitude.shape[-1]
+                padding = tf.zeros([tf.shape(input_amplitude)[0], padding_size], dtype=input_amplitude.dtype)
+                input_amplitude = tf.concat([input_amplitude, padding], axis=-1)
+        
+        # Cast excitation matrix to match input dtype
+        excitation_matrix = tf.cast(self.excitation_matrix, input_amplitude.dtype)
+        mode_excitations = tf.matmul(input_amplitude, excitation_matrix)
         
         # Apply resonant frequency response
         frequency_response = self._calculate_frequency_response(combined_input)
+        # Ensure frequency response matches mode_excitations dtype
+        frequency_response = tf.cast(frequency_response, mode_excitations.dtype)
         excited_modes = mode_excitations * frequency_response
         
         # Create standing wave patterns
@@ -286,8 +302,22 @@ class ResonanceChamber(tf.keras.layers.Layer):
         )
         
         # Combine with input phase information
+        # Handle input phase dimension compatibility
+        if input_phase.shape[-1] != self.dimensions:
+            # Adapt input to match expected dimensions
+            if input_phase.shape[-1] > self.dimensions:
+                # Truncate
+                input_phase = input_phase[..., :self.dimensions]
+            else:
+                # Pad with zeros
+                padding_size = self.dimensions - input_phase.shape[-1]
+                padding = tf.zeros([tf.shape(input_phase)[0], padding_size], dtype=input_phase.dtype)
+                input_phase = tf.concat([input_phase, padding], axis=-1)
+        
         # Use average phase across frequencies for each mode
-        mode_phases = tf.matmul(input_phase, self.excitation_matrix / tf.reduce_sum(self.excitation_matrix, axis=0, keepdims=True))
+        excitation_matrix = tf.cast(self.excitation_matrix, input_phase.dtype)
+        normalized_excitation = excitation_matrix / tf.reduce_sum(excitation_matrix, axis=0, keepdims=True)
+        mode_phases = tf.matmul(input_phase, normalized_excitation)
         
         # Create phase patterns
         expanded_phases = tf.expand_dims(mode_phases, 1)
@@ -295,8 +325,15 @@ class ResonanceChamber(tf.keras.layers.Layer):
             expanded_modes * expanded_phases, axis=-1
         )
         
-        # Combine into complex standing wave
-        standing_waves = tf.cast(standing_amplitudes, tf.complex64) * tf.exp(tf.complex(0.0, standing_phases))
+        # Combine into complex standing wave - use compatible complex dtype
+        if standing_amplitudes.dtype == tf.float16:
+            complex_dtype = tf.complex32
+        else:
+            complex_dtype = tf.complex64
+        
+        standing_waves = tf.cast(standing_amplitudes, complex_dtype) * tf.exp(
+            tf.cast(tf.complex(0.0, standing_phases), complex_dtype)
+        )
         
         return standing_waves
     
@@ -306,17 +343,31 @@ class ResonanceChamber(tf.keras.layers.Layer):
         real_part = tf.math.real(standing_waves)
         imag_part = tf.math.imag(standing_waves)
         
-        # Project to mode space
-        mode_real = tf.matmul(real_part, self.mode_shapes)
-        mode_imag = tf.matmul(imag_part, self.mode_shapes)
+        # Handle input dimension compatibility
+        if real_part.shape[-1] != self.dimensions:
+            if real_part.shape[-1] > self.dimensions:
+                real_part = real_part[..., :self.dimensions]
+                imag_part = imag_part[..., :self.dimensions]
+            else:
+                padding_size = self.dimensions - real_part.shape[-1]
+                real_padding = tf.zeros([tf.shape(real_part)[0], padding_size], dtype=real_part.dtype)
+                imag_padding = tf.zeros([tf.shape(imag_part)[0], padding_size], dtype=imag_part.dtype)
+                real_part = tf.concat([real_part, real_padding], axis=-1)
+                imag_part = tf.concat([imag_part, imag_padding], axis=-1)
         
-        # Apply coupling matrix
-        coupled_real = tf.matmul(mode_real, self.mode_coupling)
-        coupled_imag = tf.matmul(mode_imag, self.mode_coupling)
+        # Project to mode space with proper dtype casting
+        mode_shapes = tf.cast(self.mode_shapes, real_part.dtype)
+        mode_real = tf.matmul(real_part, mode_shapes)
+        mode_imag = tf.matmul(imag_part, mode_shapes)
+        
+        # Apply coupling matrix with proper dtype casting
+        mode_coupling = tf.cast(self.mode_coupling, mode_real.dtype)
+        coupled_real = tf.matmul(mode_real, mode_coupling)
+        coupled_imag = tf.matmul(mode_imag, mode_coupling)
         
         # Project back to spatial domain
-        spatial_real = tf.matmul(coupled_real, self.mode_shapes, transpose_b=True)
-        spatial_imag = tf.matmul(coupled_imag, self.mode_shapes, transpose_b=True)
+        spatial_real = tf.matmul(coupled_real, mode_shapes, transpose_b=True)
+        spatial_imag = tf.matmul(coupled_imag, mode_shapes, transpose_b=True)
         
         return tf.complex(spatial_real, spatial_imag)
     
@@ -325,9 +376,22 @@ class ResonanceChamber(tf.keras.layers.Layer):
         real_part = tf.math.real(waves)
         imag_part = tf.math.imag(waves)
         
-        # Project to mode space for reflection processing
-        mode_real = tf.matmul(real_part, self.mode_shapes)
-        mode_imag = tf.matmul(imag_part, self.mode_shapes)
+        # Handle input dimension compatibility
+        if real_part.shape[-1] != self.dimensions:
+            if real_part.shape[-1] > self.dimensions:
+                real_part = real_part[..., :self.dimensions]
+                imag_part = imag_part[..., :self.dimensions]
+            else:
+                padding_size = self.dimensions - real_part.shape[-1]
+                real_padding = tf.zeros([tf.shape(real_part)[0], padding_size], dtype=real_part.dtype)
+                imag_padding = tf.zeros([tf.shape(imag_part)[0], padding_size], dtype=imag_part.dtype)
+                real_part = tf.concat([real_part, real_padding], axis=-1)
+                imag_part = tf.concat([imag_part, imag_padding], axis=-1)
+        
+        # Project to mode space for reflection processing with proper dtype casting
+        mode_shapes = tf.cast(self.mode_shapes, real_part.dtype)
+        mode_real = tf.matmul(real_part, mode_shapes)
+        mode_imag = tf.matmul(imag_part, mode_shapes)
         
         # Apply reflection coefficients and phase shifts
         reflected_real = mode_real
@@ -337,11 +401,13 @@ class ResonanceChamber(tf.keras.layers.Layer):
             refl_coeff = self.reflection_coeffs[boundary]
             phase_shifts = self.reflection_phases[boundary]
             
-            # Apply reflection coefficient
+            # Apply reflection coefficient with proper dtype casting
+            refl_coeff = tf.cast(refl_coeff, reflected_real.dtype)
             reflected_real = reflected_real * refl_coeff
             reflected_imag = reflected_imag * refl_coeff
             
-            # Apply phase shift
+            # Apply phase shift with proper dtype casting
+            phase_shifts = tf.cast(phase_shifts, reflected_real.dtype)
             cos_phase = tf.cos(phase_shifts)
             sin_phase = tf.sin(phase_shifts)
             
@@ -351,9 +417,10 @@ class ResonanceChamber(tf.keras.layers.Layer):
             reflected_real = new_real
             reflected_imag = new_imag
         
-        # Project back to spatial domain
-        spatial_real = tf.matmul(reflected_real, self.mode_shapes, transpose_b=True)
-        spatial_imag = tf.matmul(reflected_imag, self.mode_shapes, transpose_b=True)
+        # Project back to spatial domain with proper dtype casting
+        mode_shapes_cast = tf.cast(self.mode_shapes, reflected_real.dtype)
+        spatial_real = tf.matmul(reflected_real, mode_shapes_cast, transpose_b=True)
+        spatial_imag = tf.matmul(reflected_imag, mode_shapes_cast, transpose_b=True)
         
         return tf.complex(spatial_real, spatial_imag)
     
@@ -382,6 +449,18 @@ class ResonanceChamber(tf.keras.layers.Layer):
         # Modal decomposition
         output_real = tf.math.real(output)
         output_imag = tf.math.imag(output)
+        
+        # Handle input dimension compatibility
+        if output_real.shape[-1] != self.dimensions:
+            if output_real.shape[-1] > self.dimensions:
+                output_real = output_real[..., :self.dimensions]
+                output_imag = output_imag[..., :self.dimensions]
+            else:
+                padding_size = self.dimensions - output_real.shape[-1]
+                real_padding = tf.zeros([tf.shape(output_real)[0], padding_size], dtype=output_real.dtype)
+                imag_padding = tf.zeros([tf.shape(output_imag)[0], padding_size], dtype=output_imag.dtype)
+                output_real = tf.concat([output_real, real_padding], axis=-1)
+                output_imag = tf.concat([output_imag, imag_padding], axis=-1)
         
         mode_amplitudes_real = tf.matmul(output_real, self.mode_shapes)
         mode_amplitudes_imag = tf.matmul(output_imag, self.mode_shapes)

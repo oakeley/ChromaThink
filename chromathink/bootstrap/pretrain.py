@@ -160,8 +160,13 @@ class ChromaThinkBootstrap:
                 """Mock rendering that returns random probabilities"""
                 return tf.random.uniform([self.vocab_size])
         
+        # Create mock language renderer with dynamic vocabulary size
+        vocab_size = len(self.translator.weight_patterns.get('token_colours', [1000]))
+        vocab_size = max(vocab_size, 1000)  # Ensure minimum size
+        
         self.chromathink.language_renderer = MockLanguageRenderer(
-            self.chromathink.spectrum_dims
+            self.chromathink.spectrum_dims,
+            vocab_size=vocab_size
         )
         self.logger.info("Created mock language renderer")
         

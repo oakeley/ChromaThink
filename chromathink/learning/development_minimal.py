@@ -39,19 +39,8 @@ class DevelopmentalLearningMinimal:
         # Developmental stage (child -> adolescent -> adult)
         self.developmental_stage = tf.Variable(0.0, trainable=False)
         
-        # Simple mock responses for demonstration
-        self.mock_responses = [
-            "That's a wonderful question! Let me think about that carefully.",
-            "Great curiosity! This is something many people wonder about.",
-            "What an interesting way to approach this topic!",
-            "I can see you're thinking deeply about this. That's excellent!",
-            "This reminds me of other fascinating patterns in nature.",
-            "Your question shows real insight into how things work.",
-            "This is the kind of thinking that leads to great discoveries!",
-            "I love how you're connecting different ideas together.",
-            "That's a question that even experts find challenging.",
-            "Your curiosity is really inspiring!"
-        ]
+        # NOTE: This is the LEGACY development system - use TrueColourDevelopment instead
+        # for pure colour-based learning with NO pre-programmed responses
     
     def learn_through_dialogue(self, 
                               initial_colour_state=None,
@@ -127,20 +116,10 @@ class DevelopmentalLearningMinimal:
     
     def ask_mock_teacher(self, question: str):
         """
-        Mock teacher that provides encouraging responses.
+        LEGACY mock teacher - use TrueColourDevelopment for genuine colour-based responses.
         """
-        # Add some developmental stage awareness
-        stage_value = float(self.developmental_stage.numpy())
-        
-        if stage_value < 0.3:  # Child stage
-            prefix = "Let me explain simply: "
-        elif stage_value < 0.7:  # Adolescent stage
-            prefix = "That's a good question! "
-        else:  # Adult stage
-            prefix = "Excellent inquiry. "
-        
-        response = np.random.choice(self.mock_responses)
-        return prefix + response
+        # Simple fallback for legacy compatibility
+        return "This is a legacy response system. Please use TrueColourDevelopment for genuine colour-based learning."
     
     def render_to_language(self, colour_state, question_type='what'):
         """

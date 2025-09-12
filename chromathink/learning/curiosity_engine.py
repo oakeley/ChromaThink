@@ -140,9 +140,17 @@ class CuriosityEngine(tf.keras.Model):
         gaps = self.detect_knowledge_gaps(colour_state)
         
         # Only generate question if gap is significant enough
-        if gaps['gap_magnitude'] < self.curiosity_threshold:
+        gap_magnitude_scalar = float(tf.reduce_mean(gaps['gap_magnitude']))
+        if gap_magnitude_scalar < self.curiosity_threshold:
             # Add some randomness to encourage exploration
             noise = tf.random.normal(tf.shape(colour_state)) * 0.1 * curiosity_intensity
+            
+            # Ensure dtype compatibility
+            if colour_state.dtype.is_complex and not noise.dtype.is_complex:
+                noise = tf.cast(noise, colour_state.dtype)
+            elif not colour_state.dtype.is_complex and noise.dtype.is_complex:
+                noise = tf.cast(noise, colour_state.dtype)
+                
             colour_state = colour_state + noise
             gaps = self.detect_knowledge_gaps(colour_state)
         

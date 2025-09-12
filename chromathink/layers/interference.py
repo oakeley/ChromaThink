@@ -103,9 +103,25 @@ class InterferenceLayer(tf.keras.layers.Layer):
         
         # Phase coupling for cross-frequency interactions
         if self.phase_coupling:
+            # Ensure phase tensors have batch dimension for matmul
+            if len(phase1.shape) == 1:
+                phase1_expanded = tf.expand_dims(phase1, 0)
+                phase2_expanded = tf.expand_dims(phase2, 0)
+            else:
+                phase1_expanded = phase1
+                phase2_expanded = phase2
+            
             # Transform phases through coupling matrix
-            coupled_phase1 = tf.matmul(phase1, self.phase_coupling_matrix)
-            coupled_phase2 = tf.matmul(phase2, self.phase_coupling_matrix)
+            coupled_phase1_expanded = tf.matmul(phase1_expanded, self.phase_coupling_matrix)
+            coupled_phase2_expanded = tf.matmul(phase2_expanded, self.phase_coupling_matrix)
+            
+            # Remove batch dimension if it was added
+            if len(phase1.shape) == 1:
+                coupled_phase1 = tf.squeeze(coupled_phase1_expanded, 0)
+                coupled_phase2 = tf.squeeze(coupled_phase2_expanded, 0)
+            else:
+                coupled_phase1 = coupled_phase1_expanded
+                coupled_phase2 = coupled_phase2_expanded
         else:
             coupled_phase1, coupled_phase2 = phase1, phase2
         
