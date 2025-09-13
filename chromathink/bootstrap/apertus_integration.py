@@ -46,18 +46,23 @@ class ApertusWeightTranslator:
                  apertus_path: str = "models/apertus",
                  spectrum_dims: int = 512,
                  use_mock: bool = False,
-                 max_tokens: int = 131072,  # Full vocab by default
+                 max_tokens: int = None,  # Auto-detect vocab size by default
                  max_attention_layers: int = 12,
                  max_mlp_layers: int = 8,
-                 extract_full_vocab: bool = True):  # Full vocab by default
+                 extract_full_vocab: bool = True,  # Full vocab by default
+                 force_rebuild: bool = False):  # Force rebuild cache
         
         self.apertus_path = Path(apertus_path)
         self.spectrum_dims = spectrum_dims
         self.use_mock = use_mock
-        self.max_tokens = None if extract_full_vocab else max_tokens
+        self.max_tokens = max_tokens
         self.max_attention_layers = max_attention_layers
         self.max_mlp_layers = max_mlp_layers
         self.extract_full_vocab = extract_full_vocab
+        self.force_rebuild = force_rebuild
+        
+        # Auto-detect vocabulary size if not specified
+        self.actual_vocab_size = None
         
         # Big colour model components
         self.big_colour_model = None
@@ -78,6 +83,10 @@ class ApertusWeightTranslator:
         else:
             # Load the actual Apertus model from safetensors files
             self.load_apertus_from_safetensors()
+        
+        # Auto-detect vocabulary size from model
+        if not self.use_mock:
+            self._detect_vocabulary_size()
         
         # Check for cached weights first
         self.weight_patterns = self._load_or_create_weight_patterns()
@@ -143,6 +152,39 @@ class ApertusWeightTranslator:
         self.model = MockModel(vocab_size=32000, hidden_size=512)
         self.logger.info("Mock Apertus model created successfully")
         
+    def _detect_vocabulary_size(self):
+        """Auto-detect the actual vocabulary size from model weights."""
+        try:
+            if hasattr(self, 'model_weights') and self.model_weights:
+                # Find embedding weights in the loaded weights
+                embed_key = None
+                for key in self.model_weights.keys():
+                    if 'embed_tokens.weight' in key:
+                        embed_key = key
+                        break
+                
+                if embed_key:
+                    embed_tensor = self.model_weights[embed_key]
+                    self.actual_vocab_size = embed_tensor.shape[0]
+                    self.logger.info(f"Auto-detected vocabulary size: {self.actual_vocab_size:,} tokens")
+                    return
+            
+            # Fallback: Load from config.json
+            config_path = self.apertus_path / "config.json"
+            if config_path.exists():
+                import json
+                with open(config_path, 'r') as f:
+                    config = json.load(f)
+                self.actual_vocab_size = config.get('vocab_size', 131072)
+                self.logger.info(f"Vocabulary size from config: {self.actual_vocab_size:,} tokens")
+            else:
+                self.actual_vocab_size = 131072  # Default fallback
+                self.logger.warning(f"Could not detect vocab size, using default: {self.actual_vocab_size:,}")
+                
+        except Exception as e:
+            self.logger.warning(f"Failed to detect vocab size: {e}, using default: 131072")
+            self.actual_vocab_size = 131072
+        
     def load_apertus_from_safetensors(self):
         """
         Load the actual Apertus model from the downloaded safetensors files.
@@ -151,15 +193,15 @@ class ApertusWeightTranslator:
         
         self.logger.info("Loading Apertus from safetensors files...")
         
-        # Check all required files exist
-        safetensor_files = [
-            self.apertus_path / f"model-{i:05d}-of-00004.safetensors"
-            for i in range(1, 5)
-        ]
+        # Dynamically find all safetensor files
+        safetensor_files = list(self.apertus_path.glob("model-*.safetensors"))
+        if not safetensor_files:
+            raise FileNotFoundError(f"No model-*.safetensors files found in {self.apertus_path}")
+        
+        # Sort files numerically by their part number
+        safetensor_files.sort(key=lambda x: int(x.stem.split('-')[1]))
         
         for file in safetensor_files:
-            if not file.exists():
-                raise FileNotFoundError(f"Missing safetensors file: {file}")
             self.logger.info(f"Found: {file}")
         
         # Load the tokenizer
@@ -222,8 +264,9 @@ class ApertusWeightTranslator:
         
         # Create hash of model files for cache key
         hash_md5 = hashlib.md5()
-        for i in range(1, 5):
-            file_path = self.apertus_path / f"model-{i:05d}-of-00004.safetensors"
+        safetensor_files = list(self.apertus_path.glob("model-*.safetensors"))
+        safetensor_files.sort()  # Consistent ordering for hash
+        for file_path in safetensor_files:
             if file_path.exists():
                 hash_md5.update(str(file_path.stat().st_mtime).encode())
                 
@@ -236,7 +279,7 @@ class ApertusWeightTranslator:
         cache_path = self._get_cache_path()
         
         # Try to load from cache
-        if cache_path.exists() and not getattr(self, 'force_rebuild', False):
+        if cache_path.exists() and not self.force_rebuild:
             try:
                 self.logger.info(f"Loading cached Big Colour Model from {cache_path}")
                 with open(cache_path, 'rb') as f:
@@ -245,6 +288,8 @@ class ApertusWeightTranslator:
                 self.logger.warning(f"Failed to load cache: {e}, rebuilding...")
         
         # Create new patterns
+        if self.force_rebuild:
+            self.logger.info("Force rebuilding Big Colour Model (ignoring cache)")
         self.logger.info("Creating new Big Colour Model (this may take a while for 131k tokens)")
         patterns = self.analyse_apertus_weights()
         
@@ -293,13 +338,19 @@ class ApertusWeightTranslator:
                 embed_weights = self.model.transformer.wte.weight.detach().cpu().numpy()
         
         if embed_weights is not None:
-            # Determine how many tokens to process
+            # Determine how many tokens to process using auto-detected size
+            actual_vocab_size = embed_weights.shape[0]
+            
             if self.extract_full_vocab:
-                max_tokens = embed_weights.shape[0]
-                self.logger.info(f"Full vocabulary mode: processing all {max_tokens} tokens")
+                max_tokens = actual_vocab_size
+                self.logger.info(f"Full vocabulary mode: processing all {max_tokens:,} tokens")
+            elif self.max_tokens is not None:
+                max_tokens = min(self.max_tokens, actual_vocab_size)
+                self.logger.info(f"Limited mode: processing {max_tokens:,} tokens (subset of {actual_vocab_size:,} total)")
             else:
-                max_tokens = min(self.max_tokens, embed_weights.shape[0])
-                self.logger.info(f"Limited mode: processing {max_tokens} tokens (subset of {embed_weights.shape[0]} total)")
+                # No max_tokens specified and not full vocab - use auto-detected size
+                max_tokens = actual_vocab_size
+                self.logger.info(f"Auto-detected mode: processing all {max_tokens:,} tokens")
             
             embed_subset = embed_weights[:max_tokens]
             
@@ -433,36 +484,85 @@ class ApertusWeightTranslator:
     
     def weights_to_colour_spectrum(self, weight_matrix):
         """
-        Convert weight matrix to colour spectrum representation.
-        Uses Fourier transform to find frequency components.
+        Convert weight matrix to high-nuance colour spectrum representation.
+        Extracts frequency, wavelength, intensity, and harmonic components for light cognition.
         """
         
         # Handle different weight matrix sizes
         if len(weight_matrix.shape) == 1:
             weight_matrix = weight_matrix.reshape(1, -1)
         
-        # Convert to float32 for FFT operations
-        weight_matrix = weight_matrix.astype(np.float32)
+        # Convert to float64 for higher precision FFT operations
+        weight_matrix = weight_matrix.astype(np.float64)
         
-        # Apply FFT to find frequency components
-        fft_weights = np.fft.fft(weight_matrix, n=self.spectrum_dims, axis=-1)
+        # Multi-scale spectral analysis for maximum nuance
+        colours = []
         
-        # Convert to amplitude and phase (colour representation)
-        amplitudes = np.abs(fft_weights)
-        phases = np.angle(fft_weights)
+        for i, weights in enumerate(weight_matrix):
+            # 1. Primary FFT for fundamental frequencies
+            fft_primary = np.fft.fft(weights, n=self.spectrum_dims)
+            
+            # 2. Window the signal to reduce spectral leakage
+            windowed_weights = weights * np.hanning(len(weights))
+            fft_windowed = np.fft.fft(windowed_weights, n=self.spectrum_dims)
+            
+            # 3. Extract multiple spectral characteristics
+            amplitudes = np.abs(fft_primary)
+            phases = np.angle(fft_primary)
+            
+            # 4. Calculate spectral features for light cognition
+            # - Spectral centroid (brightness/color temperature)
+            freqs = np.fft.fftfreq(self.spectrum_dims)
+            spectral_centroid = np.sum(freqs * amplitudes) / (np.sum(amplitudes) + 1e-10)
+            
+            # - Spectral rolloff (intensity distribution)
+            energy_cumsum = np.cumsum(amplitudes**2)
+            total_energy = energy_cumsum[-1]
+            rolloff_85 = np.where(energy_cumsum >= 0.85 * total_energy)[0]
+            spectral_rolloff = rolloff_85[0] if len(rolloff_85) > 0 else len(amplitudes) - 1
+            
+            # - Spectral flux (dynamic change)
+            spectral_flux = np.sum(np.diff(amplitudes)**2)
+            
+            # 5. Harmonic analysis for deeper color structure
+            harmonics = []
+            for h in range(1, min(8, self.spectrum_dims // 8)):  # Up to 7 harmonics
+                harmonic_indices = np.arange(h, self.spectrum_dims, h)[:self.spectrum_dims//h]
+                harmonic_energy = np.mean(amplitudes[harmonic_indices])
+                harmonics.append(harmonic_energy)
+            
+            # 6. Combine spectral features into rich color representation
+            # Base color from amplitude + phase
+            base_color = amplitudes * np.exp(1j * phases)
+            
+            # Modulate with spectral characteristics
+            color_temperature_factor = np.exp(spectral_centroid * 2j)  # Affects hue
+            intensity_factor = np.exp(-spectral_rolloff / self.spectrum_dims)  # Affects saturation
+            dynamic_factor = np.tanh(spectral_flux / 10.0)  # Affects brightness
+            
+            # Apply harmonic enrichment
+            harmonic_modulation = np.ones(self.spectrum_dims, dtype=complex)
+            for h, harmonic_energy in enumerate(harmonics, 1):
+                harmonic_freq = np.arange(self.spectrum_dims) * h / self.spectrum_dims
+                harmonic_modulation += harmonic_energy * 0.1 * np.exp(2j * np.pi * harmonic_freq)
+            
+            # Final rich color representation
+            enriched_color = (base_color * color_temperature_factor * intensity_factor * 
+                            dynamic_factor * harmonic_modulation)
+            
+            # Normalize to maintain stability while preserving nuance
+            max_amplitude = np.max(np.abs(enriched_color))
+            if max_amplitude > 0:
+                enriched_color = enriched_color / max_amplitude
+            
+            colours.append(enriched_color)
         
-        # Normalise amplitudes to [0, 1]
-        amplitudes = amplitudes / (np.max(amplitudes, axis=-1, keepdims=True) + 1e-8)
-        
-        # Create complex colour representation
-        colours = amplitudes * np.exp(1j * phases)
-        
-        return colours
+        return np.array(colours)
     
     def attention_to_interference(self, attention_weights):
         """
-        Convert attention patterns to interference patterns in colour space.
-        Attention is how concepts relate—in colour space, this is interference.
+        Convert attention patterns to rich interference patterns in colour space.
+        Models how concepts interfere constructively/destructively with enhanced spectral detail.
         """
         
         # Reshape if needed
@@ -475,30 +575,91 @@ class ApertusWeightTranslator:
         if len(attention_weights.shape) == 1:
             attention_weights = attention_weights.reshape(1, -1)
         
-        # Create interference pattern through matrix factorisation
+        # Convert to float64 for higher precision analysis
+        attention_weights = attention_weights.astype(np.float64)
+        
+        # Multi-modal interference analysis
+        interference_pattern = np.zeros(self.spectrum_dims, dtype=complex)
+        
         try:
-            # Convert to float32 for linalg operations
-            attention_weights_f32 = attention_weights.astype(np.float32)
-            U, S, Vt = np.linalg.svd(attention_weights_f32, full_matrices=False)
+            # 1. SVD for primary interference modes
+            U, S, Vt = np.linalg.svd(attention_weights, full_matrices=False)
+            
+            # 2. Extract dominant patterns with phase relationships
+            num_modes = min(self.spectrum_dims, len(S), 32)  # Limit to most significant modes
+            
+            for mode_idx in range(num_modes):
+                # Mode strength and frequency
+                mode_strength = S[mode_idx]
+                mode_vector = Vt[mode_idx]
+                
+                # Convert to frequency domain for interference
+                mode_fft = np.fft.fft(mode_vector, n=self.spectrum_dims)
+                
+                # Calculate interference frequency based on mode characteristics
+                mode_freq = (mode_idx + 1) / num_modes  # Normalized frequency
+                
+                # 3. Model different types of interference
+                # - Constructive interference (in-phase)
+                constructive = mode_strength * np.abs(mode_fft) * np.exp(1j * np.angle(mode_fft))
+                
+                # - Destructive interference (phase-shifted)
+                destructive = mode_strength * 0.3 * np.abs(mode_fft) * np.exp(1j * (np.angle(mode_fft) + np.pi))
+                
+                # - Partial interference (frequency-dependent phase)
+                freq_indices = np.arange(self.spectrum_dims)
+                phase_shift = 2 * np.pi * mode_freq * freq_indices / self.spectrum_dims
+                partial = mode_strength * 0.5 * np.abs(mode_fft) * np.exp(1j * (np.angle(mode_fft) + phase_shift))
+                
+                # Weight interference types by mode significance
+                mode_weight = mode_strength / (S[0] + 1e-10)  # Normalize by strongest mode
+                
+                # Combine interference types
+                combined_interference = (
+                    mode_weight * constructive +
+                    (1 - mode_weight) * 0.6 * destructive +
+                    0.4 * partial
+                )
+                
+                # Add to total interference pattern
+                interference_pattern += combined_interference
+                
+            # 4. Add spatial interference effects
+            # Model how attention patterns create standing waves
+            spatial_freq = np.arange(self.spectrum_dims) / self.spectrum_dims * 2 * np.pi
+            
+            # Create beating patterns between different modes
+            for i in range(min(3, num_modes)):
+                for j in range(i+1, min(3, num_modes)):
+                    beat_freq = abs(S[i] - S[j]) / (S[0] + 1e-10)
+                    beat_pattern = 0.2 * np.sin(spatial_freq * beat_freq) * np.exp(1j * spatial_freq * beat_freq)
+                    interference_pattern += beat_pattern
+            
         except np.linalg.LinAlgError:
-            # Fallback for singular matrices
-            self.logger.warning("SVD failed, using eigendecomposition fallback")
-            attention_weights_f32 = attention_weights.astype(np.float32)
-            eigenvals, eigenvecs = np.linalg.eigh(attention_weights_f32 @ attention_weights_f32.T)
-            S = np.sqrt(np.abs(eigenvals))
+            # Fallback: Create synthetic interference from weight statistics
+            self.logger.warning("SVD failed, using statistical interference model")
+            
+            # Use weight statistics to create interference
+            weight_mean = np.mean(attention_weights, axis=1, keepdims=True)
+            weight_std = np.std(attention_weights, axis=1, keepdims=True)
+            
+            # Create interference based on statistical properties
+            freqs = np.arange(self.spectrum_dims) / self.spectrum_dims * 2 * np.pi
+            for i, (mean, std) in enumerate(zip(weight_mean.flatten(), weight_std.flatten())):
+                # Interference frequency based on statistics
+                interference_freq = (mean + 1) * (i + 1)
+                amplitude = std + 0.1
+                phase = np.angle(mean + 1j * std)
+                
+                wave = amplitude * np.exp(1j * (freqs * interference_freq + phase))
+                interference_pattern += wave
         
-        # Top singular values represent primary interference modes
-        num_modes = min(self.spectrum_dims, len(S))
-        
-        # Create colour interference from singular values
-        interference = np.zeros(self.spectrum_dims, dtype=complex)
-        
-        for i in range(num_modes):
-            frequency = np.exp(2j * np.pi * i / num_modes)
-            amplitude = S[i] / (S[0] + 1e-8) if len(S) > 0 else 0.1  # Normalise by largest
-            interference[i] = amplitude * frequency
-        
-        return interference
+        # Normalize while preserving relative phase relationships
+        max_amplitude = np.max(np.abs(interference_pattern))
+        if max_amplitude > 0:
+            interference_pattern = interference_pattern / max_amplitude
+            
+        return interference_pattern
     
     def mlp_to_colour_transform(self, mlp_weights):
         """

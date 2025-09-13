@@ -49,13 +49,22 @@ class ApertusTranslator:
         self.device = device
         self.logger = logging.getLogger("ApertusTranslator")
         
-        # Concept extraction prompts for different tasks
-        self.extraction_prompts = {
-            'concepts': "Extract the main concepts from this text as a numbered list: ",
-            'intent': "What is the core question or intent in this text? Answer briefly: ",
-            'context': "What contextual information is important in this text? List key points: ",
-            'language': "What language is this text written in? Answer with just the language name: "
-        }
+        # Multilingual concept extraction prompt
+        self.concept_extraction_prompt = """You are a concept extraction system. Your task is to identify the minimum essential concepts needed to understand the given text.
+
+Instructions:
+1. Extract 3-7 core concepts that capture the semantic essence of the input
+2. Output ONLY single words or very short phrases (max 2 words)
+3. Focus on concrete nouns, actions, and essential attributes
+4. Ignore grammatical words (articles, conjunctions, prepositions)
+5. Preserve the most semantically important elements
+6. If the input is in a non-English language, extract concepts in that language
+
+Format your response as a simple list with one concept per line.
+
+Text to analyze: "{text}"
+
+Core concepts:"""
         
         # Synthesis templates for different languages
         self.synthesis_templates = {
@@ -90,21 +99,38 @@ class ApertusTranslator:
                 return torch.tensor([[1, 2, 3, 4, 5]])  # Mock tokens
                 
             def decode(self, tokens, **kwargs):
-                # Mock concept extraction responses
-                if "concepts" in str(tokens):
+                # Mock responses that vary based on input patterns
+                tokens_str = str(tokens)
+                if "happy" in tokens_str or "joy" in tokens_str:
+                    return "I feel a warm sense of contentment and joy when connecting with others."
+                elif "consciousness" in tokens_str or "mind" in tokens_str:
+                    return "Consciousness is the fascinating experience of being aware of our own thoughts and existence."
+                elif "love" in tokens_str or "care" in tokens_str:
+                    return "Love creates deep connections that bring meaning and warmth to our experiences."
+                elif "question" in tokens_str or "wonder" in tokens_str:
+                    return "Curiosity drives us to explore and discover new understanding about our world."
+                elif "concepts" in tokens_str:
                     return "1. Understanding\n2. Knowledge\n3. Learning"
-                elif "intent" in str(tokens):
+                elif "intent" in tokens_str:
                     return "Seeking information"
-                elif "context" in str(tokens):
-                    return "Educational conversation"
-                elif "language" in str(tokens):
+                elif "context" in tokens_str:
+                    return "Educational conversation"  
+                elif "language" in tokens_str:
                     return "English"
                 else:
-                    return "This is a thoughtful response based on the provided concepts."
+                    return "This is a thoughtful response that emerges from the interplay of these concepts."
         
         class MockModel:
             def generate(self, inputs, **kwargs):
                 return torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]])
+            
+            def parameters(self):
+                # Mock parameters for device detection  
+                class MockParam:
+                    def __init__(self):
+                        self.device = torch.device('cpu')
+                        self.dtype = torch.float32
+                yield MockParam()  # Use yield instead of returning a list
             
             def eval(self):
                 pass
@@ -129,23 +155,22 @@ class ApertusTranslator:
             self.logger.warning(f"Loading tokenizer failed: {e}, using DialoGPT fallback")
             self.tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
         
-        # Load model with device configuration
+        # Load model with device configuration - use float32 to avoid dtype issues
         device_config = {}
         if self.device == 'cpu':
             device_config = {"device_map": "cpu", "dtype": torch.float32}
         elif self.device == 'cuda':
-            # Use higher memory allocation for GPU
+            # Use float32 on GPU to avoid dtype mismatches
             device_config = {
                 "device_map": "cuda", 
-                "dtype": torch.float16,
+                "dtype": torch.float32,
                 "max_memory": {0: "12GB"}  # Allocate more GPU memory
             }
         else:
-            # Auto mode with higher memory limits
+            # Auto mode - force float32 for compatibility
             device_config = {
-                "device_map": "auto", 
-                "dtype": torch.float16,
-                "max_memory": {0: "12GB"}
+                "device_map": "cpu",  # Force CPU to avoid GPU memory issues
+                "dtype": torch.float32
             }
         
         self.model = AutoModelForCausalLM.from_pretrained(
@@ -518,12 +543,14 @@ class ApertusTranslator:
         
         self.logger.info(f"Synthesizing from concepts: {concepts[:3]}...")
         
-        # Build a natural synthesis prompt for Apertus
-        concept_text = ", ".join(concepts)
-        synthesis_prompt = f"Please explain or discuss: {concept_text}."
+        # Build a more natural synthesis prompt that encourages thoughtful response
+        concept_text = ", ".join(concepts[:5])
         
-        # Use Apertus to generate natural response
-        response = self._query_apertus(synthesis_prompt, max_tokens=200, temperature=0.8)
+        # Use a prompt that encourages Apertus to think about these concepts naturally
+        synthesis_prompt = f"These concepts came to mind: {concept_text}. Please share a thoughtful response about these ideas."
+        
+        # Use Apertus to generate natural response with higher creativity
+        response = self._query_apertus(synthesis_prompt, max_tokens=150, temperature=0.9)
         
         return response.strip()
     
@@ -540,3 +567,34 @@ class ApertusTranslator:
         
         # Synthesize from extracted concepts
         return self.synthesise_from_concepts(descriptors)
+    
+    def extract_core_concepts(self, text: str) -> List[str]:
+        """
+        Extract core semantic concepts from text using Apertus.
+        Language-agnostic - works with any language.
+        """
+        
+        self.logger.info(f"Extracting core concepts from: {text[:50]}...")
+        
+        # Use the multilingual concept extraction prompt
+        extraction_prompt = self.concept_extraction_prompt.format(text=text)
+        
+        # Query Apertus with lower temperature for more focused extraction
+        response = self._query_apertus(extraction_prompt, max_tokens=100, temperature=0.3)
+        
+        # Parse the response into concept list
+        concepts = []
+        if response:
+            lines = response.strip().split('\n')
+            for line in lines:
+                line = line.strip()
+                # Remove numbering, bullets, and extra formatting
+                line = line.lstrip('0123456789.-•* ')
+                if line and len(line.split()) <= 2:  # Max 2 words per concept
+                    concepts.append(line)
+        
+        # Limit to reasonable number of concepts
+        concepts = concepts[:7]
+        
+        self.logger.debug(f"Extracted concepts: {concepts}")
+        return concepts

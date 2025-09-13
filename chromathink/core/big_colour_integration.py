@@ -15,6 +15,7 @@ from typing import Dict, List, Tuple, Optional
 from ..bootstrap.apertus_integration import ApertusWeightTranslator
 from .chromathink_core import ChromaThinkCore
 from .apertus_translator import ApertusTranslator
+from .language_agnostic_mapper import LanguageAgnosticMapper
 
 
 class BigColourChromatThink:
@@ -76,13 +77,10 @@ class BigColourChromatThink:
             apertus_path=apertus_path,
             spectrum_dims=self.spectrum_dims,
             use_mock=use_mock,
-            extract_full_vocab=True,  # All 131k tokens
-            max_tokens=131072
+            extract_full_vocab=True,  # All tokens (auto-detected)
+            max_tokens=None,  # Auto-detect vocabulary size
+            force_rebuild=force_rebuild
         )
-        
-        # Set force_rebuild flag if requested
-        if force_rebuild:
-            self.weight_translator.force_rebuild = True
         
         self.big_colour_model = self.weight_translator.build_big_colour_model()
         
@@ -280,22 +278,23 @@ class LanguageBridge:
         # Initialize Apertus translator for synthesis (force CPU to leave GPU for ChromaThink)
         from .apertus_translator import ApertusTranslator
         self.apertus_translator = ApertusTranslator(apertus_path, device='cpu')
+        
+        # Initialize language-agnostic concept mapper 
+        self.concept_mapper = LanguageAgnosticMapper(
+            spectrum_dims=spectrum_dims,
+            apertus_translator=self.apertus_translator
+        )
     
     def text_to_colour(self, text: str) -> np.ndarray:
-        """Convert human text to colour waveform using Big Colour Model."""
+        """Convert human text to colour waveform using language-agnostic concept mapping."""
         
-        # Use the comprehensive concept encoder
-        colour_waveform = self.big_colour_model.encode_concept(text)
+        # Step 1: Extract core concepts using Apertus (works in any language)
+        concepts = self.apertus_translator.extract_core_concepts(text)
+        
+        # Step 2: Convert concepts to frequency patterns (language-agnostic)
+        colour_waveform = self.concept_mapper.concepts_to_waveform(concepts, original_text=text)
         
         # Ensure correct format for ChromaThink
-        if len(colour_waveform) != self.spectrum_dims:
-            # Interpolate to correct size
-            colour_waveform = np.interp(
-                np.linspace(0, len(colour_waveform)-1, self.spectrum_dims),
-                np.arange(len(colour_waveform)),
-                colour_waveform
-            )
-        
         return colour_waveform.astype(np.complex64)
     
     def colour_to_text(self, colour_waveform: np.ndarray) -> str:
@@ -308,43 +307,18 @@ class LanguageBridge:
         4. Result: Intelligent text that emerged from colour mathematics
         """
         
-        # Step 1: Decode waveform to the most resonant concepts
-        concept_data = self.big_colour_model.decode_waveform(colour_waveform, num_concepts=15)
+        # Step 1: Decode waveform to meaningful concepts using language-agnostic mapper
+        concepts = self.concept_mapper.waveform_to_concepts(colour_waveform, target_language="en")
         
-        if not concept_data:
+        if not concepts:
             # Fallback: extract concepts from raw frequency analysis
-            dominant_frequencies = np.argsort(np.abs(colour_waveform))[-10:][::-1]
-            # Map frequencies to vocabulary indices 
-            concept_tokens = [f"freq_{freq}" for freq in dominant_frequencies[:5]]
-            concept_prompt = "Concepts from colour frequencies: " + " ".join(concept_tokens)
-        else:
-            # Extract the strongest resonant concepts from colour interference
-            concepts = [item[0] for item in concept_data]
-            amplitudes = [item[1] for item in concept_data]
-            
-            # Build semantic prompt based on colour strength
-            primary_concepts = []
-            for i, concept in enumerate(concepts[:8]):  # Use top 8 concepts
-                amplitude = amplitudes[i]
-                if amplitude > 0.05:  # Resonance threshold
-                    primary_concepts.append(concept)
-            
-            # Create semantic guidance prompt for Apertus
-            concept_prompt = "Key concepts from colour analysis: " + ", ".join(primary_concepts)
+            dominant_frequencies = np.argsort(np.abs(colour_waveform))[-5:][::-1]
+            concepts = [f"frequency_{freq}" for freq in dominant_frequencies]
         
-        # Step 2: Use Apertus for actual text synthesis from concepts
+        # Step 2: Use Apertus to synthesize natural language from these concepts
         # This ensures NO template responses - all text emerges from Apertus
-        
-        if not concept_data:
-            # Fallback: use frequency analysis for concept extraction
-            return self.apertus_translator.synthesise_from_frequency_pattern(colour_waveform)
-        
-        # Extract the strongest concepts for Apertus synthesis
-        concepts = [item[0] for item in concept_data[:5]]  # Top 5 concepts
-        
-        # Use Apertus to synthesize response from these concepts
         response = self.apertus_translator.synthesise_from_concepts(
-            concepts=concepts,
+            concepts=concepts[:5],  # Top 5 concepts
             colour_guidance=colour_waveform  # Provide colour pattern as guidance
         )
         

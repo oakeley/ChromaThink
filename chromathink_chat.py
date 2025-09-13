@@ -9,7 +9,17 @@ Features high-capacity learning storage and comprehensive 131k token processing.
 
 import sys
 import argparse
+import logging
 from pathlib import Path
+
+# Set up clean logging by default
+logging.basicConfig(level=logging.WARNING, format='%(message)s')
+
+# Suppress TensorFlow and other noisy logs
+import os
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+import tensorflow as tf
+tf.get_logger().setLevel('WARNING')
 
 # Add project root to path for proper imports
 PROJECT_ROOT = Path(__file__).parent
@@ -48,13 +58,10 @@ def build_big_colour_model(apertus_path: str = "models/apertus", force_rebuild: 
         apertus_path=apertus_path,
         spectrum_dims=512,
         use_mock=use_mock,
-        max_tokens=131072,  # Full vocabulary
-        extract_full_vocab=True
+        max_tokens=None,  # Auto-detect vocabulary size
+        extract_full_vocab=True,
+        force_rebuild=force_rebuild
     )
-    
-    # Set force_rebuild flag if requested
-    if force_rebuild:
-        translator.force_rebuild = True
     
     # Build the big colour model
     print("Building comprehensive colour model...")
@@ -104,6 +111,52 @@ def test_big_colour_model(translator, big_colour_model):
         
         print(f"   Decoded: {[concept[0] for concept in decoded_concepts]}")
         print(f"   Amplitudes: {[f'{concept[1]:.3f}' for concept in decoded_concepts]}")
+
+
+def run_clean_chatbot(chromathink_system):
+    """
+    Run Big Colour ChromaThink with clean interface (minimal logging).
+    """
+    
+    # Suppress verbose logging
+    import logging
+    logging.getLogger().setLevel(logging.WARNING)
+    for logger_name in ['ChromaThink', 'ApertusTranslator', 'BigColourChromatThink', 'LanguageBridge']:
+        logging.getLogger(logger_name).setLevel(logging.WARNING)
+    
+    # Get system info quietly
+    try:
+        stats = chromathink_system.get_system_statistics()
+        vocab_size = stats['big_colour_model']['vocab_size']
+    except:
+        vocab_size = "131k"
+    
+    print(f"ChromaThink ready with {vocab_size} token vocabulary")
+    print("Type 'quit' to exit\n")
+    
+    # Simple chat loop
+    while True:
+        try:
+            user_input = input("You: ").strip()
+            
+            if user_input.lower() in ['quit', 'exit', 'bye']:
+                print("Goodbye!")
+                break
+                
+            if not user_input:
+                continue
+            
+            # Process through Big Colour system (quietly)
+            response = chromathink_system.think_about(user_input, intensity=1.0)
+            
+            print(f"ChromaThink: {response}\n")
+            
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+        except Exception as e:
+            print(f"Error: {e}")
+            continue
 
 
 def run_interactive_session(chromathink_system):
@@ -233,6 +286,10 @@ def main():
         import numpy as np
         
         if args.build_model or args.test_model or args.rebuild_with_full_vocab:
+            # Enable INFO logging for rebuild operations to show what's happening
+            if args.rebuild_with_full_vocab:
+                logging.getLogger("ChromaThink.Bootstrap").setLevel(logging.INFO)
+            
             # Build the big colour model for testing
             translator, big_colour_model = build_big_colour_model(
                 apertus_path=args.apertus_path,
@@ -266,13 +323,31 @@ def main():
             run_interactive_session(chromathink_system)
             return
     
-    print("\nLaunching Traditional True Colour Chatbot...")
-    print("For Big Colour integration, use: --interactive")
-    print("No pre-programmed text responses")
-    print()
+    # Default: Launch Big Colour ChromaThink system with clean interface
+    print("Initializing ChromaThink Big Colour System...")
     
-    # Launch the traditional chatbot
-    run_chatbot()
+    # Suppress initialization logging
+    for logger_name in ['ChromaThink', 'ApertusTranslator', 'BigColourChromatThink', 'LanguageBridge', 'ChromaThink.Bootstrap']:
+        logging.getLogger(logger_name).setLevel(logging.ERROR)
+    
+    try:
+        chromathink_system = create_big_colour_chromathink(
+            apertus_path=args.apertus_path,
+            use_mock=args.use_mock
+        )
+        
+        # Run with clean interface (no verbose logging)
+        run_clean_chatbot(chromathink_system)
+        
+    except Exception as e:
+        print(f"Failed to initialize Big Colour system: {e}")
+        print("\nFalling back to Traditional True Colour Chatbot...")
+        print("For Big Colour integration with verbose output, use: --interactive")
+        print("No pre-programmed text responses")
+        print()
+        
+        # Launch the traditional chatbot as fallback
+        run_chatbot()
 
 
 if __name__ == '__main__':
