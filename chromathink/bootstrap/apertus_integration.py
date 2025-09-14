@@ -286,11 +286,17 @@ class ApertusWeightTranslator:
                     return pickle.load(f)
             except Exception as e:
                 self.logger.warning(f"Failed to load cache: {e}, rebuilding...")
-        
-        # Create new patterns
+
+        # Only rebuild if explicitly forced
         if self.force_rebuild:
             self.logger.info("Force rebuilding Big Colour Model (ignoring cache)")
-        self.logger.info("Creating new Big Colour Model (this may take a while for 131k tokens)")
+            self.logger.info("Creating new Big Colour Model (this may take a while for 131k tokens)")
+        else:
+            # No cache and no force rebuild - error
+            raise FileNotFoundError(
+                f"Big Colour Model cache not found at {cache_path}. "
+                "Please build the model first using: python chromathink_chat.py --rebuild-with-full-vocab"
+            )
         patterns = self.analyse_apertus_weights()
         
         # Save to cache
@@ -725,9 +731,14 @@ class ApertusWeightTranslator:
     
     def build_big_colour_model(self):
         """Build the comprehensive colour model for encoding/decoding concepts to waveforms."""
-        
+
+        # Check if we already have a cached model
+        if hasattr(self, 'big_colour_model') and self.big_colour_model is not None:
+            self.logger.info("Using existing Big Colour Model")
+            return self.big_colour_model
+
         self.logger.info("Building Big Colour Model from weight patterns...")
-        
+
         if not hasattr(self, 'weight_patterns') or not self.weight_patterns:
             self.logger.warning("No weight patterns available, building from synthetic data")
             self.weight_patterns = self.analyse_apertus_weights()
@@ -999,3 +1010,21 @@ class BigColourModel:
             'attention_patterns': len(self.encoder.attention_patterns),
             'transformation_patterns': len(self.decoder.transformation_patterns)
         }
+
+    def get_token_patterns(self) -> dict:
+        """Get token patterns dictionary for concept-light translation."""
+        return {
+            'token_patterns': self.encoder.token_colours
+        }
+
+    def __contains__(self, key):
+        """Support 'in' operator for checking if key exists in token patterns."""
+        if key == 'token_patterns':
+            return True
+        return False
+
+    def __getitem__(self, key):
+        """Support dictionary-like access to token patterns."""
+        if key == 'token_patterns':
+            return self.encoder.token_colours
+        raise KeyError(f"Key '{key}' not found in BigColourModel")

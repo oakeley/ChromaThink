@@ -1,10 +1,6 @@
 #!/usr/bin/env python3
 """
 ChromaThink True Colour Chatbot Launcher
-
-Launch the revolutionary ChromaThink true colour chatbot with Big Colour Model.
-NO pre-programmed responses - all responses emerge from colour interference patterns.
-Features high-capacity learning storage and comprehensive 131k token processing.
 """
 
 import sys
@@ -12,8 +8,8 @@ import argparse
 import logging
 from pathlib import Path
 
-# Set up clean logging by default
-logging.basicConfig(level=logging.WARNING, format='%(message)s')
+# Set up enhanced logging for debugging
+logging.basicConfig(level=logging.INFO, format='%(levelname)s:%(name)s:%(message)s')
 
 # Suppress TensorFlow and other noisy logs
 import os
@@ -111,52 +107,6 @@ def test_big_colour_model(translator, big_colour_model):
         
         print(f"   Decoded: {[concept[0] for concept in decoded_concepts]}")
         print(f"   Amplitudes: {[f'{concept[1]:.3f}' for concept in decoded_concepts]}")
-
-
-def run_clean_chatbot(chromathink_system):
-    """
-    Run Big Colour ChromaThink with clean interface (minimal logging).
-    """
-    
-    # Suppress verbose logging
-    import logging
-    logging.getLogger().setLevel(logging.WARNING)
-    for logger_name in ['ChromaThink', 'ApertusTranslator', 'BigColourChromatThink', 'LanguageBridge']:
-        logging.getLogger(logger_name).setLevel(logging.WARNING)
-    
-    # Get system info quietly
-    try:
-        stats = chromathink_system.get_system_statistics()
-        vocab_size = stats['big_colour_model']['vocab_size']
-    except:
-        vocab_size = "131k"
-    
-    print(f"ChromaThink ready with {vocab_size} token vocabulary")
-    print("Type 'quit' to exit\n")
-    
-    # Simple chat loop
-    while True:
-        try:
-            user_input = input("You: ").strip()
-            
-            if user_input.lower() in ['quit', 'exit', 'bye']:
-                print("Goodbye!")
-                break
-                
-            if not user_input:
-                continue
-            
-            # Process through Big Colour system (quietly)
-            response = chromathink_system.think_about(user_input, intensity=1.0)
-            
-            print(f"ChromaThink: {response}\n")
-            
-        except KeyboardInterrupt:
-            print("\nGoodbye!")
-            break
-        except Exception as e:
-            print(f"Error: {e}")
-            continue
 
 
 def run_interactive_session(chromathink_system):
@@ -273,7 +223,6 @@ def main():
     parser.add_argument("--build-model", action="store_true", help="Build Big Colour Model from safetensors")
     parser.add_argument("--test-model", action="store_true", help="Test Big Colour Model encoding/decoding")
     parser.add_argument("--use-mock", action="store_true", help="Use mock model for testing")
-    parser.add_argument("--interactive", action="store_true", help="Run interactive session with Big Colour system")
     parser.add_argument("--rebuild-with-full-vocab", action="store_true", help="Force rebuild of Big Colour Model with full 131k vocabulary")
     
     args = parser.parse_args()
@@ -281,7 +230,7 @@ def main():
     print("ChromaThink Big Colour System")
     print("=" * 50)
     
-    if args.build_model or args.test_model or args.interactive or args.rebuild_with_full_vocab:
+    if args.build_model or args.test_model or args.rebuild_with_full_vocab:
         # Import numpy for testing
         import numpy as np
         
@@ -301,34 +250,19 @@ def main():
             
             if args.rebuild_with_full_vocab:
                 print("\nBig Colour Model rebuilt with full 131k vocabulary")
-                if not args.interactive:
-                    return
+                # Exit after rebuild if no other action needed
+                return
             
-            if args.build_model and not args.interactive:
+            if args.build_model and not args.test_model:
                 # If only building, exit after build
                 return
-        
-        if args.interactive:
-            print("\nCreating Big Colour ChromaThink system...")
-            chromathink_system = create_big_colour_chromathink(
-                apertus_path=args.apertus_path,
-                use_mock=args.use_mock
-            )
-            
-            # Show system info
-            stats = chromathink_system.get_system_statistics()
-            print(f"System ready with {stats['big_colour_model']['vocab_size']:,} token vocabulary")
-            
-            # Run interactive session
-            run_interactive_session(chromathink_system)
-            return
     
-    # Default: Launch Big Colour ChromaThink system with clean interface
-    print("Initializing ChromaThink Big Colour System...")
+    # Default behavior: Launch interactive Big Colour ChromaThink system
+    print("Creating Big Colour ChromaThink system...")
     
-    # Suppress initialization logging
+    # Enable detailed logging for debugging concept extraction and synthesis
     for logger_name in ['ChromaThink', 'ApertusTranslator', 'BigColourChromatThink', 'LanguageBridge', 'ChromaThink.Bootstrap']:
-        logging.getLogger(logger_name).setLevel(logging.ERROR)
+        logging.getLogger(logger_name).setLevel(logging.INFO)
     
     try:
         chromathink_system = create_big_colour_chromathink(
@@ -336,18 +270,17 @@ def main():
             use_mock=args.use_mock
         )
         
-        # Run with clean interface (no verbose logging)
-        run_clean_chatbot(chromathink_system)
+        # Show system info
+        stats = chromathink_system.get_system_statistics()
+        print(f"System ready with {stats['big_colour_model']['vocab_size']:,} token vocabulary")
         
+        # Run interactive session
+        run_interactive_session(chromathink_system)
+    
     except Exception as e:
         print(f"Failed to initialize Big Colour system: {e}")
-        print("\nFalling back to Traditional True Colour Chatbot...")
-        print("For Big Colour integration with verbose output, use: --interactive")
-        print("No pre-programmed text responses")
-        print()
-        
-        # Launch the traditional chatbot as fallback
-        run_chatbot()
+        print("System initialization failed - Apertus model is required")
+        return
 
 
 if __name__ == '__main__':

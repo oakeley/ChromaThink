@@ -1,12 +1,5 @@
 """
 TrueColourChatbot: Pure colour-based CLI chatbot interface
-
-This chatbot uses ChromaThink's revolutionary true colour thinking:
-- NO pre-programmed text responses
-- All responses emerge from colour interference patterns  
-- Apertus handles ONLY translation
-- ChromaThink thinks purely in colour space
-- High-capacity learning storage for massive datasets
 """
 
 import os
@@ -349,12 +342,12 @@ class TrueColourChatbot:
         atexit.register(self._cleanup)
         
         self.console.print(Panel(
-            "[green]🌈 TrueColourChatbot Initialized[/green]\n\n"
-            f"✨ Pure colour-based cognition active\n"
-            f"🧠 Spectrum dimensions: {spectrum_dims}\n"  
-            f"💾 High-capacity storage ready\n"
-            f"⚡ GPU acceleration enabled\n"
-            f"🔄 Session ID: {self.session_id}",
+            "[green] Chatbot Initialized[/green]\n\n"
+            f" Colour-based thinking active\n"
+            f" Spectral dimensions: {spectrum_dims}\n"  
+            f" Storage ready\n"
+            f" GPU acceleration enabled\n"
+            f" Session ID: {self.session_id}",
             title="ChromaThink Ready"
         ))
     
@@ -373,14 +366,9 @@ class TrueColourChatbot:
         
         # Save final storage stats
         stats = self.storage.get_storage_stats()
-        self.console.print(f"\n💾 Session complete - {stats['total_memories']} memories stored")
+        self.console.print(f"\n Session complete - {stats['total_memories']} memories stored")
     
     def process_user_input(self, user_input: str, thinking_intensity: float = 1.0) -> str:
-        """
-        Process user input through pure colour thinking.
-        NO pre-programmed responses - everything emerges from colour dynamics.
-        """
-        
         # Process through ChromaThink's pure colour cognition
         response = self.chromathink.process_input(user_input)
         
@@ -418,7 +406,7 @@ class TrueColourChatbot:
             colour_pattern = self.chromathink.thinker.cognitive_state
         
         if tf.reduce_sum(tf.abs(colour_pattern)) == 0:
-            self.console.print("🎨 [dim]No active colour pattern[/dim]")
+            self.console.print(" [dim]No active colour pattern[/dim]")
             return
         
         # Convert to amplitude spectrum
@@ -482,7 +470,7 @@ class TrueColourChatbot:
     def dream_consolidation(self):
         """Perform dream consolidation with high-capacity storage."""
         
-        self.console.print("💤 [yellow]Initiating dream consolidation...[/yellow]")
+        self.console.print(" [yellow]Initiating dream consolidation...[/yellow]")
         
         # ChromaThink dreams
         dream_colours = self.chromathink.dream(dream_intensity=0.7, num_dream_cycles=5)
@@ -503,12 +491,12 @@ class TrueColourChatbot:
                 session_id=self.session_id
             )
         
-        self.console.print(f"✨ [green]Dream complete - {len(dream_colours)} dreams stored[/green]")
+        self.console.print(f" [green]Dream complete - {len(dream_colours)} dreams stored[/green]")
     
     def developmental_learning_session(self):
         """Run a developmental learning session."""
         
-        self.console.print("🧠 [yellow]Starting developmental learning session...[/yellow]")
+        self.console.print(" [yellow]Starting developmental learning session...[/yellow]")
         
         learning_topics = [
             "What is the nature of understanding?",
@@ -542,17 +530,17 @@ class TrueColourChatbot:
         # Show results
         metrics = results['learning_metrics']
         self.console.print(Panel(
-            f"📈 Development Growth: {metrics['session_summary']['development_growth']:.4f}\n"
-            f"🎯 Learning Quality: {metrics['learning_quality_assessment']['quality_rating']}\n"
-            f"🌈 Final Complexity: {final_complexity:.4f}",
+            f" Development Growth: {metrics['session_summary']['development_growth']:.4f}\n"
+            f" Learning Quality: {metrics['learning_quality_assessment']['quality_rating']}\n"
+            f" Final Complexity: {final_complexity:.4f}",
             title="Learning Session Complete"
         ))
     
     def interactive_chat(self):
-        """Main interactive chat loop with pure colour thinking."""
+        """Main interactive chat loop with colour thinking."""
         
         self.console.print(Panel(
-            "[bold green]Welcome to ChromaThink True Colour Chat![/bold green]\n\n"
+            "[bold green]Welcome to ChromaThink Chat![/bold green]\n\n"
             "Every response emerges from pure colour interference patterns.\n"
             "Commands:\n"
             "• [cyan]spectrum[/cyan] - Show colour spectrum\n"
@@ -561,7 +549,7 @@ class TrueColourChatbot:
             "• [cyan]stats[/cyan] - Storage statistics\n"
             "• [cyan]intensity X[/cyan] - Set thinking intensity (0.5-2.0)\n"
             "• [cyan]quit[/cyan] - Exit\n",
-            title="True Colour Cognition Active"
+            title="Colour Thinking Active"
         ))
         
         current_intensity = 1.0
@@ -576,7 +564,7 @@ class TrueColourChatbot:
                 
                 # Handle commands
                 if user_input.lower() in ['quit', 'exit', 'q']:
-                    self.console.print("\n👋 [green]Goodbye! Your colour memories are preserved.[/green]")
+                    self.console.print("\n [green]Goodbye! Your memories are preserved.[/green]")
                     break
                 
                 elif user_input.lower() == 'spectrum':
@@ -600,15 +588,15 @@ class TrueColourChatbot:
                         intensity = float(user_input.split()[1])
                         if 0.1 <= intensity <= 3.0:
                             current_intensity = intensity
-                            self.console.print(f"🔥 [yellow]Thinking intensity set to {intensity}[/yellow]")
+                            self.console.print(f" [yellow]Thinking intensity set to {intensity}[/yellow]")
                         else:
-                            self.console.print("❌ [red]Intensity must be between 0.1 and 3.0[/red]")
+                            self.console.print(" [red]Intensity must be between 0.1 and 3.0[/red]")
                     except (IndexError, ValueError):
-                        self.console.print("❌ [red]Usage: intensity <float>[/red]")
+                        self.console.print(" [red]Usage: intensity <float>[/red]")
                     continue
                 
                 # Process through pure colour thinking
-                with self.console.status("[yellow]🎨 Thinking in colour space...[/yellow]"):
+                with self.console.status("[yellow] Thinking in colour space...[/yellow]"):
                     response = self.process_user_input(user_input, current_intensity)
                 
                 # Display response with metrics
@@ -624,10 +612,10 @@ class TrueColourChatbot:
                 
                 # Show metrics
                 metrics_text = (
-                    f"⏱️ {thinking_time:.3f}s | "
-                    f"🎯 {complexity:.3f} | "
-                    f"🔥 {current_intensity} | "
-                    f"💾 {self.exchange_count} exchanges"
+                    f" {thinking_time:.3f}s | "
+                    f" {complexity:.3f} | "
+                    f" {current_intensity} | "
+                    f" {self.exchange_count} exchanges"
                 )
                 self.console.print(f"[dim]{metrics_text}[/dim]")
                 
@@ -638,19 +626,19 @@ class TrueColourChatbot:
                 # Periodic storage stats
                 if self.exchange_count % 10 == 0:
                     stats = self.storage.get_storage_stats()
-                    self.console.print(f"[dim]💾 {stats['total_memories']:,} total memories stored[/dim]")
+                    self.console.print(f"[dim] {stats['total_memories']:,} total memories stored[/dim]")
                 
             except KeyboardInterrupt:
-                self.console.print("\n\n👋 [green]Goodbye! Your colour memories are preserved.[/green]")
+                self.console.print("\n\n [green]Goodbye! Your memories are preserved.[/green]")
                 break
             
             except Exception as e:
-                self.console.print(f"[red]❌ Error: {e}[/red]")
+                self.console.print(f"[red] Error: {e}[/red]")
                 self.logger.exception("Chat error")
 
 
 def main():
-    """Main entry point for true colour chatbot."""
+    """Main entry point for chatbot."""
     
     # Setup logging
     logging.basicConfig(
@@ -665,9 +653,9 @@ def main():
     console = Console()
     
     if use_real_apertus:
-        console.print("🎯 [green]Found Apertus model - using real 8B parameter translation[/green]")
+        console.print(" [green]Found Apertus model - using real 8B parameter translation[/green]")
     else:
-        console.print("🤖 [yellow]Using mock Apertus translator for demonstration[/yellow]")
+        console.print(" [yellow]Using mock Apertus translator for demonstration[/yellow]")
     
     try:
         # Initialize chatbot
@@ -682,7 +670,7 @@ def main():
         chatbot.interactive_chat()
         
     except Exception as e:
-        console.print(f"[red]❌ Failed to initialize chatbot: {e}[/red]")
+        console.print(f"[red] Failed to initialize chatbot: {e}[/red]")
         logging.exception("Chatbot initialization failed")
 
 

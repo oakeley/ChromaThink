@@ -137,33 +137,40 @@ class GPUColourAccelerator:
     def _gpu_interference_kernel(self, wave1: tf.Tensor, wave2: tf.Tensor) -> tf.Tensor:
         """
         Core GPU kernel for colour wave interference.
-        
+
         This implements the physics of wave interference optimized for GPU execution.
         """
-        
+
+        # Ensure inputs are complex64
+        wave1 = tf.cast(wave1, tf.complex64)
+        wave2 = tf.cast(wave2, tf.complex64)
+
         # Extract amplitude and phase
         amp1 = tf.abs(wave1)
         amp2 = tf.abs(wave2)
         phase1 = tf.math.angle(wave1)
         phase2 = tf.math.angle(wave2)
-        
+
         # Phase difference
         phase_diff = phase1 - phase2
-        
+
         # Interference amplitude (vectorized across all frequencies)
         interference_amp = tf.sqrt(
             amp1**2 + amp2**2 + 2*amp1*amp2*tf.cos(phase_diff)
         )
-        
+
         # Interference phase (vectorized)
         interference_phase = tf.atan2(
             amp1*tf.sin(phase1) + amp2*tf.sin(phase2),
             amp1*tf.cos(phase1) + amp2*tf.cos(phase2)
         )
-        
-        # Construct complex result
-        result = interference_amp * tf.exp(tf.complex(0.0, interference_phase))
-        
+
+        # Construct complex result - ensure proper complex multiplication
+        # Convert amplitude to complex64 for proper dtype matching
+        complex_amplitude = tf.cast(interference_amp, tf.complex64)
+        phase_factor = tf.exp(tf.complex(tf.cast(0.0, tf.float32), interference_phase))
+        result = complex_amplitude * phase_factor
+
         return result
     
     @tf.function(reduce_retracing=True)
@@ -226,23 +233,26 @@ class GPUColourAccelerator:
                              resonance_matrix: tf.Tensor,
                              num_iterations: int) -> tf.Tensor:
         """Single resonance step with iterative processing."""
-        
-        state = colour_input
-        
+
+        # Ensure input is complex64
+        state = tf.cast(colour_input, tf.complex64)
+        resonance_matrix = tf.cast(resonance_matrix, tf.float32)
+
         for i in tf.range(num_iterations):
             # Apply resonance transformation
             real_part = tf.linalg.matvec(resonance_matrix, tf.real(state))
             imag_part = tf.linalg.matvec(resonance_matrix, tf.imag(state))
-            
+
             transformed = tf.complex(real_part, imag_part)
-            
-            # Mix with original (partial feedback)
-            feedback_strength = 0.3 * tf.cast(i + 1, tf.float32) / tf.cast(num_iterations, tf.float32)
-            state = (1.0 - feedback_strength) * state + feedback_strength * transformed
-            
+
+            # Mix with original (partial feedback) - ensure complex64 arithmetic
+            feedback_strength = tf.cast(0.3 * tf.cast(i + 1, tf.float32) / tf.cast(num_iterations, tf.float32), tf.complex64)
+            one_minus_feedback = tf.cast(1.0, tf.complex64) - feedback_strength
+            state = one_minus_feedback * state + feedback_strength * transformed
+
             # Normalize to prevent explosion
             state = self._gpu_normalize_colour(state)
-        
+
         return state
     
     @tf.function(reduce_retracing=True)
@@ -332,26 +342,29 @@ class GPUColourAccelerator:
     @tf.function(reduce_retracing=True)
     def _gpu_normalize_colour(self, colour: tf.Tensor) -> tf.Tensor:
         """GPU-optimized colour normalization."""
-        
+
+        # Ensure colour is complex64
+        colour = tf.cast(colour, tf.complex64)
+
         # Compute magnitude
         magnitude = tf.abs(colour)
         max_mag = tf.reduce_max(magnitude)
-        
-        # Prevent explosion
+
+        # Prevent explosion - ensure complex division
         colour = tf.cond(
             max_mag > 10.0,
-            lambda: colour / (max_mag / 2.0),
+            lambda: colour / tf.cast(max_mag / 2.0, tf.complex64),
             lambda: colour
         )
-        
-        # Prevent collapse
+
+        # Prevent collapse - ensure complex multiplication
         mean_mag = tf.reduce_mean(tf.abs(colour))
         colour = tf.cond(
             mean_mag < 0.01,
-            lambda: colour * (0.1 / (mean_mag + 1e-8)),
+            lambda: colour * tf.cast(0.1 / (mean_mag + 1e-8), tf.complex64),
             lambda: colour
         )
-        
+
         return colour
     
     def create_optimized_resonance_matrix(self, 
@@ -439,8 +452,8 @@ class GPUColourAccelerator:
 
 
 # Factory function for GPU accelerator
-def create_gpu_accelerator(spectrum_dims: int = 512, 
-                         mixed_precision: bool = True) -> GPUColourAccelerator:
+def create_gpu_accelerator(spectrum_dims: int = 512,
+                         mixed_precision: bool = False) -> GPUColourAccelerator:
     """
     Create GPU colour accelerator with optimal settings.
     

@@ -16,6 +16,8 @@ from ..bootstrap.apertus_integration import ApertusWeightTranslator
 from .chromathink_core import ChromaThinkCore
 from .apertus_translator import ApertusTranslator
 from .language_agnostic_mapper import LanguageAgnosticMapper
+from .concept_light_translator import create_concept_light_translator
+from .light_concept_translator import create_light_concept_translator
 
 
 class BigColourChromatThink:
@@ -84,9 +86,12 @@ class BigColourChromatThink:
         
         self.big_colour_model = self.weight_translator.build_big_colour_model()
         
-        # 3. Initialize pure colour thinking core
+        # 3. Initialize pure colour thinking core with GPU acceleration
         self.logger.info("Initializing pure colour thinking core...")
-        self.chromathink_core = ChromaThinkCore(spectrum_dims=self.spectrum_dims)
+        self.chromathink_core = ChromaThinkCore(
+            spectrum_dims=self.spectrum_dims,
+            gpu_accelerator=self.gpu_accelerator
+        )
         
         # 4. Create language bridge (translation only, no thinking)
         self.logger.info("Creating language bridge...")
@@ -113,29 +118,44 @@ class BigColourChromatThink:
         3. Colour response → Big Colour Model → Human language
         """
         
-        self.logger.info(f"Processing: '{human_input[:50]}...' (intensity: {intensity})")
-        
+        self.logger.info(f" Processing human input: '{human_input[:50]}...' (intensity: {intensity})")
+
         # Step 1: Convert human language to colour waveform
+        self.logger.info(" Step 1: Converting human language to colour waveform...")
         input_colour = self.language_bridge.text_to_colour(human_input)
-        self.logger.debug(f"Input converted to colour: shape={input_colour.shape}, energy={np.sum(np.abs(input_colour)**2):.3f}")
-        
+        input_energy = np.sum(np.abs(input_colour)**2)
+        input_freq = np.argmax(np.abs(input_colour))
+        self.logger.info(f" Input colour generated: energy={input_energy:.3f}, dominant_freq={input_freq}, shape={input_colour.shape}")
+
         # Step 2: Apply thinking intensity
+        self.logger.info(f" Step 2: Applying thinking intensity ({intensity}x)...")
         thought_colour = input_colour * intensity
-        
+        thought_energy = np.sum(np.abs(thought_colour)**2)
+        self.logger.info(f" Thought colour amplified: energy={thought_energy:.3f}")
+
         # Step 3: Pure colour thinking (NO language involved)
+        self.logger.info(" Step 3: Processing through ChromaThink colour thinking core...")
+        self.logger.info(f" Memory context: {len(self.colour_memories)} previous colour memories")
         response_colour = self.chromathink_core.think_in_colour(
-            thought_colour, 
+            thought_colour,
             memory_context=self.colour_memories[-3:] if self.colour_memories else []
         )
-        
+        response_energy = np.sum(np.abs(response_colour)**2)
+        response_freq = np.argmax(np.abs(response_colour))
+        self.logger.info(f" ChromaThink core response: energy={response_energy:.3f}, dominant_freq={response_freq}")
+
         # Step 4: Store colour memory
         self.colour_memories.append(response_colour)
-        
+        self.logger.info(f" Stored colour memory (total: {len(self.colour_memories)})")
+
         # Step 5: Convert colour response to human language
+        self.logger.info("  Step 5: Converting colour response to human language...")
         human_response = self.language_bridge.colour_to_text(response_colour)
-        
+        self.logger.info(f" Final response generated: '{human_response[:100]}{'...' if len(human_response) > 100 else ''}'")
+
         # Step 6: Add conversation context
         self.conversation_context.append((human_input, human_response))
+        self.logger.info(f" Conversation context updated (total exchanges: {len(self.conversation_context)})")
         
         # Show colour analysis
         self._log_colour_analysis(input_colour, response_colour)
@@ -269,65 +289,271 @@ class LanguageBridge:
     Bridge between human language and colour space using Big Colour Model.
     ONLY handles translation - NO thinking or response generation.
     """
-    
+
     def __init__(self, big_colour_model, spectrum_dims=512, apertus_path: str = "models/apertus"):
         self.big_colour_model = big_colour_model
         self.spectrum_dims = spectrum_dims
         self.logger = logging.getLogger("LanguageBridge")
+
+        # Store context for synthesis
+        self._current_question = None
         
         # Initialize Apertus translator for synthesis (force CPU to leave GPU for ChromaThink)
         from .apertus_translator import ApertusTranslator
         self.apertus_translator = ApertusTranslator(apertus_path, device='cpu')
         
-        # Initialize language-agnostic concept mapper 
+        # Initialize language-agnostic concept mapper
         self.concept_mapper = LanguageAgnosticMapper(
             spectrum_dims=spectrum_dims,
             apertus_translator=self.apertus_translator
         )
+
+        # Initialize new translation layers
+        self.logger.info("Initializing concept-light translation layers...")
+        self.concept_to_light = create_concept_light_translator(
+            big_colour_model=big_colour_model,
+            spectrum_dims=spectrum_dims
+        )
+        self.light_to_concept = create_light_concept_translator(
+            big_colour_model=big_colour_model,
+            spectrum_dims=spectrum_dims
+        )
     
     def text_to_colour(self, text: str) -> np.ndarray:
-        """Convert human text to colour waveform using language-agnostic concept mapping."""
-        
+        """Convert human text to colour waveform using the new concept-light translation layer."""
+
+        self.logger.info(f"Converting text to colour: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+
+        # Store the question for later synthesis
+        self._current_question = text
+
         # Step 1: Extract core concepts using Apertus (works in any language)
+        self.logger.info(" Step 1: Extracting core concepts from text...")
         concepts = self.apertus_translator.extract_core_concepts(text)
-        
-        # Step 2: Convert concepts to frequency patterns (language-agnostic)
-        colour_waveform = self.concept_mapper.concepts_to_waveform(concepts, original_text=text)
-        
+
+        # Check for direct processing flag
+        if concepts and concepts[0] == "__DIRECT_PROCESSING__":
+            self.logger.info(" Using direct text processing - bypassing concept extraction")
+            # Convert text directly to colour using simple hash-based approach
+            text_to_process = concepts[1]
+            colour_waveform = self._text_to_colour_direct(text_to_process)
+            return colour_waveform
+
+        self.logger.info(f" Extracted concepts: {concepts}")
+
+        # Step 2: Convert concepts to light patterns using new translator
+        self.logger.info(" Step 2: Converting concepts to light patterns...")
+        light_patterns = self.concept_to_light.translate_concepts_to_light(concepts)
+
+        # Log light pattern summary
+        pattern_summary = self.concept_to_light.get_light_pattern_summary(light_patterns)
+        self.logger.info(f" Generated {pattern_summary['count']} light patterns:")
+        self.logger.info(f"   Wavelength range: {pattern_summary.get('wavelength_range', 'N/A')}nm")
+        self.logger.info(f"   Total intensity: {pattern_summary.get('total_intensity', 'N/A'):.2f}")
+
+        # Step 3: Convert light patterns to colour waveform for ChromaThink processing
+        self.logger.info(" Step 3: Converting light patterns to colour waveform...")
+        colour_waveform = self._light_patterns_to_waveform(light_patterns)
+
+        energy = np.sum(np.abs(colour_waveform)**2)
+        dominant_freq = np.argmax(np.abs(colour_waveform))
+        self.logger.info(f" Generated colour waveform: energy={energy:.3f}, dominant_freq={dominant_freq}")
+
         # Ensure correct format for ChromaThink
         return colour_waveform.astype(np.complex64)
     
     def colour_to_text(self, colour_waveform: np.ndarray) -> str:
-        """Convert colour waveform to human language using Big Colour Model + Apertus.
-        
+        """Convert colour waveform to human language using the new light-concept translation layer.
+
         Flow:
-        1. Decode colour waveform to resonant concepts from 131k vocabulary
-        2. Use those concepts as semantic guidance for Apertus text generation
-        3. Generate coherent response using Apertus's language capabilities
+        1. Convert processed colour waveform back to light patterns
+        2. Use light-concept translator to extract meaningful concepts
+        3. Use Apertus to synthesize natural language from these concepts
         4. Result: Intelligent text that emerged from colour mathematics
         """
-        
-        # Step 1: Decode waveform to meaningful concepts using language-agnostic mapper
-        concepts = self.concept_mapper.waveform_to_concepts(colour_waveform, target_language="en")
-        
+
+        energy = np.sum(np.abs(colour_waveform)**2)
+        dominant_freq = np.argmax(np.abs(colour_waveform))
+        self.logger.info(f" Converting colour waveform to text: energy={energy:.3f}, dominant_freq={dominant_freq}")
+
+        # Step 1: Convert colour waveform back to light patterns
+        self.logger.info(" Step 1: Converting colour waveform to light patterns...")
+        light_patterns = self._waveform_to_light_patterns(colour_waveform)
+
+        # Log raw light pattern data for debugging
+        if light_patterns:
+            self.logger.info(f" Raw light patterns ({len(light_patterns)} total):")
+            for i, (wavelength, frequency, intensity) in enumerate(light_patterns[:3]):  # Show first 3
+                self.logger.info(f"   Pattern {i+1}: λ={wavelength:.1f}nm, f={frequency:.2e}Hz, I={intensity:.3f}")
+            if len(light_patterns) > 3:
+                self.logger.info(f"   ... and {len(light_patterns) - 3} more patterns")
+        else:
+            self.logger.warning("  No light patterns extracted from waveform")
+
+        # Step 2: Use light-concept translator to extract concepts
+        self.logger.info(" Step 2: Converting light patterns to concepts...")
+        concepts = self.light_to_concept.translate_light_to_concepts(light_patterns)
+
+        # Log extracted concepts
+        if concepts:
+            self.logger.info(f" Extracted {len(concepts)} concepts: {concepts[:10]}")
+            if len(concepts) > 10:
+                self.logger.info(f"   ... and {len(concepts) - 10} more concepts")
+        else:
+            self.logger.warning("  No concepts extracted from light patterns")
+
+        # Step 3: Fallback if no concepts extracted
         if not concepts:
-            # Fallback: extract concepts from raw frequency analysis
+            self.logger.warning("Using frequency fallback for concept extraction")
             dominant_frequencies = np.argsort(np.abs(colour_waveform))[-5:][::-1]
             concepts = [f"frequency_{freq}" for freq in dominant_frequencies]
-        
-        # Step 2: Use Apertus to synthesize natural language from these concepts
+            self.logger.info(f"Fallback frequency concepts: {concepts}")
+
+        # Step 4: Use Apertus to synthesize natural language from these concepts
+        self.logger.info("  Step 3: Using Apertus to synthesize natural language...")
+        self.logger.info(f" Input concepts for Apertus synthesis: {concepts[:7]}")
+
         # This ensures NO template responses - all text emerges from Apertus
         response = self.apertus_translator.synthesise_from_concepts(
-            concepts=concepts[:5],  # Top 5 concepts
+            concepts=concepts[:7],  # Top 7 concepts for richer responses
+            original_question=self._current_question,  # Pass the original question for context
             colour_guidance=colour_waveform  # Provide colour pattern as guidance
         )
-        
+
+        self.logger.info(f" Apertus synthesized response: '{response[:100]}{'...' if len(response) > 100 else ''}'")
+
         return response
 
+    def _text_to_colour_direct(self, text: str) -> np.ndarray:
+        """
+        Direct text to colour conversion when concept extraction fails.
+        Uses simple hash-based approach to create consistent colour patterns.
+        """
+        self.logger.info(f" Direct text conversion: '{text[:50]}{'...' if len(text) > 50 else ''}'")
 
-def create_big_colour_chromathink(apertus_path: str = "models/apertus", 
+        # Create a hash-based colour pattern
+        text_hash = hash(text.lower())
+
+        # Generate colour waveform using hash
+        colour_waveform = np.zeros(self.spectrum_dims, dtype=np.complex64)
+
+        # Use hash to determine dominant frequencies and phases
+        words = text.lower().split()
+        for i, word in enumerate(words[:20]):  # Limit to 20 words for performance
+            word_hash = hash(word)
+
+            # Map to frequency bin
+            freq_bin = (word_hash % (self.spectrum_dims - 1)) + 1
+
+            # Set amplitude and phase based on hash
+            amplitude = 0.5 + 0.5 * ((word_hash % 1000) / 1000.0)
+            phase = 2 * np.pi * ((word_hash % 360) / 360.0)
+
+            colour_waveform[freq_bin] += amplitude * np.exp(1j * phase)
+
+        # Normalize
+        if np.sum(np.abs(colour_waveform)) > 0:
+            colour_waveform = colour_waveform / np.max(np.abs(colour_waveform))
+
+        energy = np.sum(np.abs(colour_waveform)**2)
+        dominant_freq = np.argmax(np.abs(colour_waveform))
+        self.logger.info(f" Direct colour generated: energy={energy:.3f}, dominant_freq={dominant_freq}")
+
+        return colour_waveform
+
+    def _light_patterns_to_waveform(self, light_patterns: List[Tuple[float, float, float]]) -> np.ndarray:
+        """
+        Convert light patterns to colour waveform for ChromaThink processing.
+
+        Args:
+            light_patterns: List of (wavelength, frequency, intensity) tuples
+
+        Returns:
+            Complex waveform for ChromaThink resonance chambers
+        """
+        if not light_patterns:
+            # Return empty waveform
+            return np.zeros(self.spectrum_dims, dtype=np.complex64)
+
+        # Initialize waveform
+        waveform = np.zeros(self.spectrum_dims, dtype=np.complex64)
+
+        for wavelength, frequency, intensity in light_patterns:
+            # Map frequency to waveform index
+            # Use logarithmic mapping for better frequency distribution
+            freq_index = int((np.log10(frequency) - 14) * self.spectrum_dims / 2)  # 10^14 to 10^16 Hz range
+            freq_index = max(0, min(freq_index, self.spectrum_dims - 1))
+
+            # Create complex amplitude with phase based on wavelength
+            phase = (wavelength % 360) * np.pi / 180  # Convert wavelength to phase
+            amplitude = intensity * np.exp(1j * phase)
+
+            # Add to waveform with Gaussian spread for smoothness
+            for i in range(max(0, freq_index - 5), min(self.spectrum_dims, freq_index + 6)):
+                distance = abs(i - freq_index)
+                weight = np.exp(-distance**2 / 8)  # Gaussian spread
+                waveform[i] += amplitude * weight
+
+        # Normalize to prevent overflow
+        max_amplitude = np.max(np.abs(waveform))
+        if max_amplitude > 0:
+            waveform = waveform / max_amplitude
+
+        return waveform
+
+    def _waveform_to_light_patterns(self, colour_waveform: np.ndarray) -> List[Tuple[float, float, float]]:
+        """
+        Convert processed colour waveform back to light patterns.
+
+        Args:
+            colour_waveform: Complex waveform from ChromaThink processing
+
+        Returns:
+            List of (wavelength, frequency, intensity) tuples
+        """
+        light_patterns = []
+
+        # Find peaks in the waveform
+        amplitudes = np.abs(colour_waveform)
+        phases = np.angle(colour_waveform)
+
+        # Find significant peaks (above threshold)
+        threshold = 0.1 * np.max(amplitudes) if np.max(amplitudes) > 0 else 0
+        peak_indices = []
+
+        for i in range(1, len(amplitudes) - 1):
+            if (amplitudes[i] > amplitudes[i-1] and
+                amplitudes[i] > amplitudes[i+1] and
+                amplitudes[i] > threshold):
+                peak_indices.append(i)
+
+        # Convert peaks to light patterns
+        for peak_idx in peak_indices:
+            # Map index back to frequency
+            frequency = 10**(14 + (peak_idx * 2) / self.spectrum_dims)  # Reverse of log mapping
+
+            # Calculate wavelength from frequency
+            c = 3e8  # m/s
+            wavelength = (c / frequency) * 1e9  # convert to nm
+
+            # Get intensity from amplitude
+            intensity = amplitudes[peak_idx]
+
+            # Ensure reasonable wavelength range (visible light + near IR/UV)
+            if 200 <= wavelength <= 1000:  # Extended range for processing
+                light_patterns.append((wavelength, frequency, intensity))
+
+        # Sort by intensity (strongest first)
+        light_patterns.sort(key=lambda x: x[2], reverse=True)
+
+        # Limit to reasonable number of patterns
+        return light_patterns[:20]  # Top 20 patterns
+
+
+def create_big_colour_chromathink(apertus_path: str = "models/apertus",
                                   use_mock: bool = False,
-                                  force_rebuild: bool = False) -> BigColourChromatThink:
+                                  force_rebuild: bool = False,
+                                  gpu_acceleration: bool = True) -> BigColourChromatThink:
     """
     Factory function to create a fully initialized Big Colour ChromaThink system.
     """
@@ -341,7 +567,8 @@ def create_big_colour_chromathink(apertus_path: str = "models/apertus",
         apertus_path=apertus_path,
         spectrum_dims=512,
         use_mock=use_mock,
-        force_rebuild=force_rebuild
+        force_rebuild=force_rebuild,
+        gpu_acceleration=gpu_acceleration
     )
     
     logger.info("Big Colour ChromaThink system created successfully!")

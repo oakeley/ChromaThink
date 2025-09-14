@@ -167,9 +167,10 @@ class PureColourMemory:
     Memories are stored as colour patterns and retrieved through resonance.
     """
     
-    def __init__(self, spectrum_dims: int = 512, capacity: int = 10000):
+    def __init__(self, spectrum_dims: int = 512, capacity: int = 10000, gpu_accelerator=None):
         self.spectrum_dims = spectrum_dims
         self.capacity = capacity
+        self.gpu_accelerator = gpu_accelerator
         self.logger = logging.getLogger("PureColourMemory")
         
         # Memory storage as pure colour patterns
@@ -256,21 +257,48 @@ class PureColourMemory:
         if num_stored == 0:
             return []
         
+        # Use GPU accelerated memory search if available
+        if self.gpu_accelerator is not None and int(num_stored) > 10:
+            try:
+                stored_memories = self.memory_colours[:int(num_stored)]
+                stored_strengths = self.memory_strengths[:int(num_stored)]
+
+                similarities, indices = self.gpu_accelerator.accelerated_memory_search(
+                    query_colour, stored_memories, stored_strengths, top_k=min(num_memories, int(num_stored))
+                )
+
+                # Convert to expected format
+                top_memories = []
+                for i in range(len(similarities)):
+                    idx = int(indices[i])
+                    similarity = float(similarities[i])
+                    memory = self.memory_colours[idx]
+                    top_memories.append((similarity, memory, idx))
+
+                    # Update access count
+                    self.access_counts[idx].assign(self.access_counts[idx] + 1)
+
+                return top_memories
+
+            except Exception as e:
+                self.logger.warning(f"GPU memory search failed, falling back to CPU: {e}")
+
+        # Fallback to CPU implementation
         # Calculate resonance with all stored memories
         resonances = []
-        
+
         for i in range(int(num_stored)):
             memory = self.memory_colours[i]
-            
+
             # Calculate complex resonance (colour similarity)
             resonance = tf.abs(tf.reduce_sum(query_colour * tf.math.conj(memory)))
-            
+
             # Weight by memory strength and access history
             strength_weight = self.memory_strengths[i]
             access_weight = 1.0 + tf.cast(self.access_counts[i], tf.float32) * 0.1
-            
+
             weighted_resonance = resonance * strength_weight * access_weight
-            
+
             resonances.append((float(weighted_resonance), memory, i))
         
         # Sort by resonance strength and return top memories
@@ -293,9 +321,10 @@ class ChromaThinkCore:
     All thinking happens through colour interference and resonance.
     """
     
-    def __init__(self, spectrum_dims: int = 512, num_resonance_chambers: int = 5):
+    def __init__(self, spectrum_dims: int = 512, num_resonance_chambers: int = 5, gpu_accelerator=None):
         self.spectrum_dims = spectrum_dims
         self.num_resonance_chambers = num_resonance_chambers
+        self.gpu_accelerator = gpu_accelerator
         self.logger = logging.getLogger("ChromaThinkCore")
         
         # Resonance chambers for different types of thinking
@@ -324,7 +353,7 @@ class ChromaThinkCore:
         self.interference_engine = InterferenceEngine(spectrum_dims)
         
         # Pure colour memory (no text)
-        self.colour_memory = PureColourMemory(spectrum_dims, capacity=10000)
+        self.colour_memory = PureColourMemory(spectrum_dims, capacity=10000, gpu_accelerator=gpu_accelerator)
         
         # Current cognitive state (working memory)
         self.cognitive_state = tf.Variable(
@@ -653,27 +682,36 @@ class ChromaThinkCore:
     def colour_interference(self, colour1: tf.Tensor, colour2: tf.Tensor) -> tf.Tensor:
         """
         Simple colour interference for wave interaction.
+        Uses GPU acceleration when available.
         """
-        
+
+        # Use GPU accelerated interference if available
+        if self.gpu_accelerator is not None:
+            try:
+                return self.gpu_accelerator.accelerated_colour_interference([colour1, colour2])
+            except Exception as e:
+                self.logger.warning(f"GPU acceleration failed, falling back to CPU: {e}")
+
+        # Fallback to CPU implementation
         # Extract amplitude and phase
         amp1 = tf.abs(colour1)
         amp2 = tf.abs(colour2)
         phase1 = tf.math.angle(colour1)
         phase2 = tf.math.angle(colour2)
-        
+
         # Wave interference calculation
         phase_diff = phase1 - phase2
         result_amp = tf.sqrt(amp1**2 + amp2**2 + 2*amp1*amp2*tf.cos(phase_diff))
-        
+
         # Phase calculation
         result_phase = tf.atan2(
             amp1*tf.sin(phase1) + amp2*tf.sin(phase2),
             amp1*tf.cos(phase1) + amp2*tf.cos(phase2)
         )
-        
+
         # Combine amplitude and phase
         result = tf.cast(result_amp, tf.complex64) * tf.exp(tf.complex(0.0, result_phase))
-        
+
         return result
     
     def apply_resonance(self, colour: tf.Tensor, depth: int = 3) -> tf.Tensor:

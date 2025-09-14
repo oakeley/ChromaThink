@@ -15,11 +15,12 @@ Apertus is the bridge, ChromaThink is the mind.
 import torch
 import tensorflow as tf
 import numpy as np
-from transformers import AutoModelForCausalLM, AutoTokenizer
 from typing import List, Dict, Tuple, Optional
 import logging
 from pathlib import Path
 import warnings
+import requests
+import json
 
 # Handle imports gracefully
 try:
@@ -49,204 +50,113 @@ class ApertusTranslator:
         self.device = device
         self.logger = logging.getLogger("ApertusTranslator")
         
-        # Multilingual concept extraction prompt
-        self.concept_extraction_prompt = """You are a concept extraction system. Your task is to identify the minimum essential concepts needed to understand the given text.
+        # Ollama endpoint configuration
+        self.ollama_url = "http://localhost:11434/api/generate"
+        self.ollama_model = "qwen3:4b"
+        
+        # Improved concept extraction prompt for Ollama
+        self.concept_extraction_prompt = """You are a curt text simplification system. Your task is to identify the optimum sentence structure into which a query can be reformulated for clarity and ease of understanding of intent.
 
 Instructions:
-1. Extract 3-7 core concepts that capture the semantic essence of the input
-2. Output ONLY single words or very short phrases (max 2 words)
+1. Extract the core concepts that capture the semantic essence of the input
+2. Simplify the input structure for clarity and brevity
 3. Focus on concrete nouns, actions, and essential attributes
-4. Ignore grammatical words (articles, conjunctions, prepositions)
-5. Preserve the most semantically important elements
-6. If the input is in a non-English language, extract concepts in that language
+4. Select a critical verb to include in the output phrase to describe the requested act
+5. Ignore grammatical words (articles, conjunctions, prepositions)
+6. Preserve the most semantically important elements so that meaning in the output phrase is retained
+7. Render the output phrase in the same language as the input phrase, if more than one language is detected then render the output phrase in English
+8. Do not provide explanations only return the simplified output phrase
 
-Format your response as a simple list with one concept per line.
-
-Text to analyze: "{text}"
+Input text: "{text}"
 
 Core concepts:"""
         
-        # Synthesis templates for different languages
-        self.synthesis_templates = {
-            'english': "Express these concepts in natural English: {concepts}. Based on the original context '{context}' and responding to '{intent}', synthesize a thoughtful response:",
-            'spanish': "Expresa estos conceptos en español natural: {concepts}. Basado en el contexto original '{context}' y respondiendo a '{intent}', sintetiza una respuesta reflexiva:",
-            'french': "Exprimez ces concepts en français naturel: {concepts}. Basé sur le contexte original '{context}' et en répondant à '{intent}', synthétisez une réponse réfléchie:",
-            'german': "Drücken Sie diese Konzepte in natürlichem Deutsch aus: {concepts}. Basierend auf dem ursprünglichen Kontext '{context}' und als Antwort auf '{intent}', synthetisieren Sie eine durchdachte Antwort:",
-            'default': "Express these concepts naturally: {concepts}. Based on the original context '{context}' and responding to '{intent}', synthesize a thoughtful response:"
+        # Keep extraction prompts for compatibility
+        self.extraction_prompts = {
+            'context': "Extract context keywords from:",
+            'intent': "Identify the primary intent of:",
+            'entities': "List key entities mentioned in:"
         }
         
-        # Initialize Apertus model
-        if self.use_mock or not TRANSFORMERS_AVAILABLE:
-            self.logger.warning("Using mock Apertus translator")
-            self._create_mock_translator()
-        else:
-            try:
-                self._load_apertus_model()
-            except Exception as e:
-                self.logger.warning(f"Failed to load Apertus: {e}, using mock")
-                self._create_mock_translator()
+        # Test Ollama connection
+        try:
+            self._test_ollama_connection()
+            self.logger.info("Ollama connection established successfully")
+        except Exception as e:
+            self.logger.warning(f"Ollama connection test failed: {e}")
+            if not use_mock:
+                self.logger.warning("Ollama is required when not using mock mode")
     
-    def _create_mock_translator(self):
-        """Create mock translator for testing"""
-        
-        class MockTokenizer:
-            def __init__(self):
-                self.vocab_size = 50000
-                self.eos_token_id = 2
-                self.pad_token_id = 0
-                
-            def apply_chat_template(self, messages, **kwargs):
-                return torch.tensor([[1, 2, 3, 4, 5]])  # Mock tokens
-                
-            def decode(self, tokens, **kwargs):
-                # Mock responses that vary based on input patterns
-                tokens_str = str(tokens)
-                if "happy" in tokens_str or "joy" in tokens_str:
-                    return "I feel a warm sense of contentment and joy when connecting with others."
-                elif "consciousness" in tokens_str or "mind" in tokens_str:
-                    return "Consciousness is the fascinating experience of being aware of our own thoughts and existence."
-                elif "love" in tokens_str or "care" in tokens_str:
-                    return "Love creates deep connections that bring meaning and warmth to our experiences."
-                elif "question" in tokens_str or "wonder" in tokens_str:
-                    return "Curiosity drives us to explore and discover new understanding about our world."
-                elif "concepts" in tokens_str:
-                    return "1. Understanding\n2. Knowledge\n3. Learning"
-                elif "intent" in tokens_str:
-                    return "Seeking information"
-                elif "context" in tokens_str:
-                    return "Educational conversation"  
-                elif "language" in tokens_str:
-                    return "English"
-                else:
-                    return "This is a thoughtful response that emerges from the interplay of these concepts."
-        
-        class MockModel:
-            def generate(self, inputs, **kwargs):
-                return torch.tensor([[1, 2, 3, 4, 5, 6, 7, 8, 9, 10]])
-            
-            def parameters(self):
-                # Mock parameters for device detection  
-                class MockParam:
-                    def __init__(self):
-                        self.device = torch.device('cpu')
-                        self.dtype = torch.float32
-                yield MockParam()  # Use yield instead of returning a list
-            
-            def eval(self):
-                pass
-        
-        self.tokenizer = MockTokenizer()
-        self.model = MockModel()
-        self.logger.info("Mock Apertus translator created")
+    def _test_ollama_connection(self):
+        """Test if Ollama is running and accessible."""
+        try:
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": self.ollama_model,
+                    "prompt": "test",
+                    "stream": False,
+                    "options": {"num_predict": 1}
+                },
+                timeout=5
+            )
+            response.raise_for_status()
+        except Exception as e:
+            raise ConnectionError(f"Cannot connect to Ollama at {self.ollama_url}: {e}")
     
     def _load_apertus_model(self):
-        """Load real Apertus model for translation"""
-        
-        self.logger.info(f"Loading Apertus translator from {self.apertus_path}")
-        
-        # Load tokenizer
-        try:
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.apertus_path,
-                local_files_only=True,
-                trust_remote_code=True
-            )
-        except Exception as e:
-            self.logger.warning(f"Loading tokenizer failed: {e}, using DialoGPT fallback")
-            self.tokenizer = AutoTokenizer.from_pretrained("microsoft/DialoGPT-medium")
-        
-        # Load model with device configuration - use float32 to avoid dtype issues
-        device_config = {}
-        if self.device == 'cpu':
-            device_config = {"device_map": "cpu", "dtype": torch.float32}
-        elif self.device == 'cuda':
-            # Use float32 on GPU to avoid dtype mismatches
-            device_config = {
-                "device_map": "cuda", 
-                "dtype": torch.float32,
-                "max_memory": {0: "12GB"}  # Allocate more GPU memory
-            }
-        else:
-            # Auto mode - force float32 for compatibility
-            device_config = {
-                "device_map": "cpu",  # Force CPU to avoid GPU memory issues
-                "dtype": torch.float32
-            }
-        
-        self.model = AutoModelForCausalLM.from_pretrained(
-            self.apertus_path,
-            local_files_only=True,
-            use_safetensors=True,
-            trust_remote_code=True,
-            **device_config
-        )
-        self.model.eval()
-        
-        # Log device allocation
-        if hasattr(self.model, 'hf_device_map'):
-            self.logger.info(f"Apertus loaded on: {self.model.hf_device_map}")
-        else:
-            self.logger.info(f"Apertus loaded on: {self.device}")
-        
-        self.logger.info("Apertus translator loaded successfully")
+        """Placeholder for compatibility - no longer loads Apertus model."""
+        self.logger.info("Using Ollama for language processing")
+        # Keep method for compatibility but don't load model
+        self.tokenizer = None
+        self.model = None
     
     def extract_concepts(self, text: str) -> Tuple[Dict[str, List[str]], str]:
         """
-        Extract concepts from human text using Apertus.
+        Extract concepts from human text using Ollama.
         Returns structured concepts and detected language.
         """
         
         self.logger.info(f"Extracting concepts from text: {text[:50]}...")
         
-        # Detect language first
-        language = self._detect_language(text)
-        
-        # Extract different concept types
+        # Use simplified extraction - Ollama will handle language automatically
         concepts = {}
         
         for concept_type, prompt in self.extraction_prompts.items():
-            if concept_type == 'language':  # Skip language detection in main loop
-                continue
-                
             extraction_query = f"{prompt}\n\"{text}\"\n\nResponse:"
             
-            response = self._query_apertus(extraction_query, max_tokens=100, temperature=0.3)
+            response = self._query_ollama(extraction_query, max_tokens=100, temperature=0.3)
             
             # Parse the response into concept list
             concepts[concept_type] = self._parse_concept_response(response, concept_type)
             
             self.logger.debug(f"Extracted {concept_type}: {concepts[concept_type]}")
         
-        return concepts, language
+        # Return concepts with default language (Ollama handles any language)
+        return concepts, "auto"
     
     def synthesise_response(self, 
                           colour_descriptors: List[str], 
                           target_language: str,
                           original_concepts: Dict[str, List[str]]) -> str:
         """
-        Translate colour pattern descriptors back to human language.
+        Translate colour pattern descriptors back to human language using Ollama.
         This is synthesis from colour, NOT generation of new content.
         """
         
-        self.logger.info(f"Synthesising {target_language} response from {len(colour_descriptors)} colour descriptors")
+        self.logger.info(f"Synthesising response from {len(colour_descriptors)} colour descriptors")
         
-        # Get appropriate template
-        language_key = target_language.lower() if target_language.lower() in self.synthesis_templates else 'default'
-        template = self.synthesis_templates[language_key]
-        
-        # Format the synthesis prompt
+        # Create synthesis prompt for Ollama
         concepts_text = ", ".join(colour_descriptors)
         context_text = ", ".join(original_concepts.get('context', ['general conversation']))
         intent_text = ", ".join(original_concepts.get('intent', ['seeking understanding']))
         
-        synthesis_prompt = template.format(
-            concepts=concepts_text,
-            context=context_text,
-            intent=intent_text
-        )
+        synthesis_prompt = f"""Express these concepts naturally: {concepts_text}. 
+Based on the original context '{context_text}' and responding to '{intent_text}', 
+synthesise a thoughtful response:"""
         
-        # Generate response
-        response = self._query_apertus(synthesis_prompt, max_tokens=300, temperature=0.7)
+        # Generate response using Ollama
+        response = self._query_ollama(synthesis_prompt, max_tokens=300, temperature=0.7)
         
         self.logger.debug(f"Synthesised response: {response[:100]}...")
         
@@ -314,91 +224,163 @@ Core concepts:"""
         
         return descriptors
     
-    def _detect_language(self, text: str) -> str:
-        """Detect the language of input text"""
+    def _query_ollama(self, prompt: str, max_tokens: int = 100, temperature: float = 0.5) -> str:
+        """Query Ollama model for text generation, handling thinking steps."""
         
-        language_query = f"{self.extraction_prompts['language']}\n\"{text[:100]}\"\n\nLanguage:"
-        response = self._query_apertus(language_query, max_tokens=10, temperature=0.1)
-        
-        # Clean up response
-        language = response.strip().lower()
-        
-        # Map common variations
-        language_mapping = {
-            'en': 'english', 'english': 'english',
-            'es': 'spanish', 'español': 'spanish', 'spanish': 'spanish',
-            'fr': 'french', 'français': 'french', 'french': 'french',
-            'de': 'german', 'deutsch': 'german', 'german': 'german'
-        }
-        
-        detected = language_mapping.get(language, language)
-        self.logger.debug(f"Detected language: {detected}")
-        
-        return detected
-    
-    def _query_apertus(self, prompt: str, max_tokens: int = 100, temperature: float = 0.5) -> str:
-        """Query Apertus model with given prompt"""
-        
-        messages = [{"role": "user", "content": prompt}]
+        self.logger.debug(f"Querying Ollama with prompt: '{prompt[:100]}{'...' if len(prompt) > 100 else ''}'")
         
         try:
-            # Apply chat template
-            inputs = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=True,
-                return_tensors="pt",
-                add_generation_prompt=True
+            # Use streaming to handle thinking process
+            response = requests.post(
+                self.ollama_url,
+                json={
+                    "model": self.ollama_model,
+                    "prompt": prompt,
+                    "stream": True,  # Enable streaming
+                    "options": {
+                        "temperature": temperature,
+                        "num_predict": 20480,  # Large enough for extensive thinking
+                        # No stop tokens - let Ollama complete naturally
+                    }
+                },
+                stream=True,
+                timeout=3000  # 50 minutes for extensive thinking
             )
             
-            # Create attention mask
-            attention_mask = torch.ones_like(inputs)
+            response.raise_for_status()
             
-            # Move inputs to same device and dtype as model
-            device = next(self.model.parameters()).device
-            model_dtype = next(self.model.parameters()).dtype
+            # Collect the streamed response
+            full_response = ""
+            thinking_logged = False
+            think_tag_closed = False
             
-            # inputs and attention_mask should remain as int64/long for tokenized data
-            inputs = inputs.to(device)
-            attention_mask = attention_mask.to(device)
+            for line in response.iter_lines():
+                if line:
+                    try:
+                        chunk = json.loads(line)
+                        if 'response' in chunk:
+                            chunk_text = chunk['response']
+                            full_response += chunk_text
+                            
+                            # Log thinking message once when we detect thinking started
+                            if not thinking_logged and '<think>' in full_response:
+                                self.logger.info("Ollama is thinking...")
+                                thinking_logged = True
+                            
+                            # Check if thinking has ended
+                            if '</think>' in full_response:
+                                think_tag_closed = True
+                                self.logger.debug("Found </think> tag - thinking complete")
+                        
+                        # Only stop if Ollama says it's done AND we've either:
+                        # 1. Seen </think> tag closed, or
+                        # 2. Haven't started thinking (quick response)
+                        if chunk.get('done', False):
+                            if think_tag_closed:
+                                self.logger.debug("Generation complete with </think> found")
+                                break
+                            elif not thinking_logged:
+                                self.logger.debug("Generation complete without thinking phase")
+                                break
+                            # Otherwise, ignore the done flag and keep streaming
+                            
+                    except json.JSONDecodeError:
+                        continue
             
-            # Ensure embedding layer can handle the input dtype correctly
-            if hasattr(self.model, 'model') and hasattr(self.model.model, 'embed_tokens'):
-                # This is for handling mixed precision models
-                pass  # inputs should remain as long/int64
+            # Warn if thinking started but never completed properly
+            if thinking_logged and not think_tag_closed:
+                self.logger.warning("Thinking started but </think> not found - response may be incomplete")
             
-            # Generate response
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    inputs,
-                    attention_mask=attention_mask,
-                    max_new_tokens=max_tokens,
-                    temperature=temperature,
-                    do_sample=True,
-                    pad_token_id=self.tokenizer.eos_token_id
-                )
+            # Extract only the final answer
+            generated_text = self._extract_final_answer(full_response, prompt)
             
-            # Decode response
-            response = self.tokenizer.decode(
-                outputs[0][len(inputs[0]):],
-                skip_special_tokens=True
-            )
+            if not generated_text:
+                self.logger.warning("Ollama returned empty response after processing")
+                self.logger.debug(f"Full response was: {full_response[:500]}...")
+                return ""
             
-            return response.strip()
+            self.logger.info(f"Ollama response: '{generated_text[:50]}{'...' if len(generated_text) > 50 else ''}'")
+            return generated_text
             
+        except requests.exceptions.Timeout:
+            self.logger.error("Ollama request timed out after 50 minutes")
+            return ""
+        except requests.exceptions.RequestException as e:
+            self.logger.error(f"Error querying Ollama: {e}")
+            return ""
         except Exception as e:
-            self.logger.warning(f"Apertus query failed: {e}, using fallback")
-            # Return a generic response based on prompt content
-            if "concepts" in prompt:
-                return "understanding, knowledge, inquiry"
-            elif "intent" in prompt:
-                return "seeking information"
-            elif "context" in prompt:
-                return "conversational context"
-            else:
-                return "thoughtful response"
+            self.logger.error(f"Unexpected error querying Ollama: {e}")
+            import traceback
+            self.logger.error(f"Traceback: {traceback.format_exc()}")
+            return ""
+    
+    def _extract_final_answer(self, response: str, original_prompt: str) -> str:
+        """Extract the final answer from Ollama response, handling thinking tags."""
+        
+        import re
+        
+        # First remove <think>...</think> blocks
+        if '<think>' in response and '</think>' in response:
+            # Extract everything after </think>
+            parts = response.split('</think>')
+            if len(parts) > 1:
+                answer = parts[-1].strip()
+                if answer:
+                    # Remove quotes if present
+                    if answer.startswith('"') and answer.endswith('"'):
+                        return answer[1:-1]
+                    return answer
+        
+        # Fallback to the previous extraction logic if no think tags
+        # For concept extraction prompts, look for short simplified phrases
+        if "Do not provide explanations only return the simplified output phrase" in original_prompt:
+            # Split response into lines
+            lines = response.strip().split('\n')
+            
+            # Look for the last non-empty line that looks like a simplified phrase
+            thinking_indicators = [
+                'thinking', 'we are given', 'input text:', 'let me', 'i need to',
+                'first,', 'the task', 'instructions:', 'step', 'extract', 'simplify',
+                'focus on', 'select', 'ignore', 'preserve', 'render', 'core concepts:'
+            ]
+            
+            for line in reversed(lines):
+                line = line.strip()
+                if line and len(line) < 100:
+                    if not any(indicator in line.lower() for indicator in thinking_indicators):
+                        if line.startswith('"') and line.endswith('"'):
+                            return line[1:-1]
+                        elif not line.startswith('Input text:') and not line.startswith('Output:'):
+                            return line
+            
+            # Look for patterns like "Output: X"
+            output_match = re.search(r'(?:Output|Result|Answer|Response):\s*"?([^"\n]+)"?', response, re.IGNORECASE)
+            if output_match:
+                return output_match.group(1).strip()
+        
+        # General fallback cleaning
+        cleaned = response.strip()
+        
+        # Remove common prefixes
+        prefixes_to_remove = [
+            "The answer is:", "Final answer:", "Response:", "Output:", 
+            "Result:", "Core concepts:", "Simplified:"
+        ]
+        
+        for prefix in prefixes_to_remove:
+            if cleaned.lower().startswith(prefix.lower()):
+                cleaned = cleaned[len(prefix):].strip()
+                break
+        
+        return cleaned
+    
+    # Keep this method for backward compatibility
+    def _query_apertus(self, prompt: str, max_tokens: int = 100, temperature: float = 0.5) -> str:
+        """Redirects to Ollama query for backward compatibility."""
+        return self._query_ollama(prompt, max_tokens, temperature)
     
     def _parse_concept_response(self, response: str, concept_type: str) -> List[str]:
-        """Parse Apertus response into concept list"""
+        """Parse Ollama response into concept list."""
         
         concepts = []
         
@@ -436,7 +418,7 @@ Core concepts:"""
         return cleaned_concepts if cleaned_concepts else [f"general {concept_type}"]
     
     def _frequency_to_fundamental_concept(self, freq_idx: int, amplitude: float, phase: float) -> str:
-        """Map low frequency to fundamental concept descriptor"""
+        """Map low frequency to fundamental concept descriptor."""
         
         # Map frequency bands to concept categories
         band = (freq_idx * 8) // self.spectrum_dims  # 8 bands
@@ -463,7 +445,7 @@ Core concepts:"""
             return f"subtle {base_concept}"
     
     def _frequency_to_relationship_concept(self, freq_idx: int, amplitude: float, phase: float) -> str:
-        """Map mid frequency to relationship concept descriptor"""
+        """Map mid frequency to relationship concept descriptor."""
         
         # Map to relationship types
         band = ((freq_idx - self.spectrum_dims // 4) * 6) // (self.spectrum_dims // 2)
@@ -488,7 +470,7 @@ Core concepts:"""
             return f"harmonious {base_relationship}"
     
     def _frequency_to_detail_concept(self, freq_idx: int, amplitude: float, phase: float) -> str:
-        """Map high frequency to detail concept descriptor"""
+        """Map high frequency to detail concept descriptor."""
         
         # Map to detail types
         band = ((freq_idx - 3 * self.spectrum_dims // 4) * 4) // (self.spectrum_dims // 4)
@@ -509,22 +491,22 @@ Core concepts:"""
             return f"subtle {base_detail}"
     
     def _calculate_spectral_entropy(self, amplitude: np.ndarray) -> float:
-        """Calculate spectral entropy as measure of complexity"""
+        """Calculate spectral entropy as measure of complexity."""
         
-        # Normalize amplitude
+        # Normalise amplitude
         power = amplitude ** 2
         power_norm = power / (np.sum(power) + 1e-8)
         
         # Calculate entropy
         entropy = -np.sum(power_norm * np.log(power_norm + 1e-8))
         
-        # Normalize by maximum possible entropy
+        # Normalise by maximum possible entropy
         max_entropy = np.log(len(amplitude))
         
         return entropy / max_entropy if max_entropy > 0 else 0.0
     
     def _calculate_phase_coherence(self, phase: np.ndarray) -> float:
-        """Calculate phase coherence as measure of unity"""
+        """Calculate phase coherence as measure of unity."""
         
         if len(phase) == 0:
             return 0.5
@@ -535,28 +517,56 @@ Core concepts:"""
         
         return float(coherence)
     
-    def synthesise_from_concepts(self, concepts: List[str], colour_guidance: np.ndarray = None) -> str:
+    def synthesise_from_concepts(self, concepts: List[str], original_question: str = None, colour_guidance: np.ndarray = None) -> str:
         """
-        Synthesize natural language response from concept list using Apertus.
-        This ensures NO template responses - all text comes from Apertus generation.
+        Synthesise natural language response from concept list using Ollama.
+        This ensures NO template responses - all text comes from Ollama generation.
         """
-        
-        self.logger.info(f"Synthesizing from concepts: {concepts[:3]}...")
-        
-        # Build a more natural synthesis prompt that encourages thoughtful response
-        concept_text = ", ".join(concepts[:5])
-        
-        # Use a prompt that encourages Apertus to think about these concepts naturally
-        synthesis_prompt = f"These concepts came to mind: {concept_text}. Please share a thoughtful response about these ideas."
-        
-        # Use Apertus to generate natural response with higher creativity
-        response = self._query_apertus(synthesis_prompt, max_tokens=150, temperature=0.9)
-        
+
+        self.logger.info(f"  Ollama synthesis from concepts: {concepts[:3]}...")
+        self.logger.info(f" Original question: '{original_question[:50] if original_question else 'None'}{'...' if original_question and len(original_question) > 50 else ''}'")
+
+        if not concepts:
+            self.logger.warning(" No concepts provided for synthesis")
+            return "I cannot form a response from the given patterns."
+
+        # Use the concepts as they are (should be coherent phrases now)
+        concept_text = "; ".join(concepts[:3])  # Use semicolon to separate multiple concept phrases
+        self.logger.info(f" Concept text for synthesis: '{concept_text}'")
+
+        # Use the improved synthesis prompt structure
+        synthesis_prompt = f"""You are a linguistic synthesiser. Your task is to create a natural, coherent response by weaving together concept words into grammatically correct sentences.
+
+Instructions:
+1. You will receive CONCEPT WORDS that represent the core semantic elements of a response
+2. You will receive the ORIGINAL QUESTION that prompted these concepts
+3. Create a natural sentence/paragraph that incorporates these concepts as the answer using the language of the question
+4. Maintain logical flow and grammatical correctness
+5. Ensure the response directly addresses the original question
+6. Use appropriate connecting words and grammar to make the concepts flow naturally in the language used
+
+Original question: {original_question or "general inquiry"}
+Concept words: {concept_text}
+
+Natural response:"""
+
+        self.logger.debug(f" Synthesis prompt: {synthesis_prompt[:200]}...")
+
+        # Use Ollama to generate natural response
+        self.logger.info(" Querying Ollama for natural language synthesis...")
+        response = self._query_ollama(synthesis_prompt, max_tokens=200, temperature=0.7)
+
+        if not response or len(response.strip()) < 10:
+            self.logger.error(" Ollama synthesis failed completely")
+            self.logger.error(f" Failed synthesis prompt: {synthesis_prompt[:100]}...")
+            raise RuntimeError("Ollama synthesis failed - no valid response generated. Check Ollama is running.")
+
+        self.logger.info(f" Successfully synthesised response: '{response[:80]}{'...' if len(response) > 80 else ''}'")
         return response.strip()
     
     def synthesise_from_frequency_pattern(self, colour_waveform: np.ndarray) -> str:
         """
-        Synthesize response from raw frequency pattern by first extracting concepts.
+        Synthesise response from raw frequency pattern by first extracting concepts.
         """
         
         # Convert numpy array to tensor for analysis
@@ -565,36 +575,57 @@ Core concepts:"""
         # Extract concept descriptors from the frequency pattern
         descriptors = self.colour_to_concept_descriptors(colour_tensor)
         
-        # Synthesize from extracted concepts
+        # Synthesise from extracted concepts
         return self.synthesise_from_concepts(descriptors)
     
     def extract_core_concepts(self, text: str) -> List[str]:
         """
-        Extract core semantic concepts from text using Apertus.
+        Extract core semantic concepts from text using Ollama.
         Language-agnostic - works with any language.
         """
         
-        self.logger.info(f"Extracting core concepts from: {text[:50]}...")
-        
+        self.logger.info(f" Ollama concept extraction from: '{text[:50]}{'...' if len(text) > 50 else ''}'")
+
         # Use the multilingual concept extraction prompt
         extraction_prompt = self.concept_extraction_prompt.format(text=text)
+        self.logger.debug(f"  Using extraction prompt: {extraction_prompt[:100]}...")
+
+        # Query Ollama with lower temperature for more focused extraction
+        self.logger.debug(" Querying Ollama for concept extraction...")
+        response = self._query_ollama(extraction_prompt, max_tokens=100, temperature=0.3)
+        self.logger.debug(f" Ollama raw response: '{response[:100]}{'...' if len(response) > 100 else ''}'")
         
-        # Query Apertus with lower temperature for more focused extraction
-        response = self._query_apertus(extraction_prompt, max_tokens=100, temperature=0.3)
+        # The response should be a simplified phrase - return it as-is if valid
+        if response and len(response.strip()) > 2:
+            # Clean up the response
+            cleaned_response = response.strip()
+            
+            # Remove quotes if present
+            if cleaned_response.startswith('"') and cleaned_response.endswith('"'):
+                cleaned_response = cleaned_response[1:-1]
+            
+            # Check if this looks like a valid simplified phrase
+            # (contains at least one verb or action word)
+            action_words = ['explain', 'describe', 'show', 'tell', 'find', 'calculate', 
+                          'analyze', 'compare', 'define', 'understand', 'help', 'create',
+                          'make', 'write', 'generate', 'solve', 'determine', 'identify']
+            
+            has_action = any(word in cleaned_response.lower() for word in action_words)
+            
+            if has_action and len(cleaned_response) < 100:
+                # This is a valid simplified phrase - return it as a single concept
+                self.logger.info(f" Extracted simplified phrase: '{cleaned_response}'")
+                return [cleaned_response]
+            
+            # If it doesn't look like a simplified phrase, try parsing as concepts
+            # This handles cases where Ollama might return a list instead
+            concepts = self._parse_concept_response(response, "core")
+            if concepts and concepts[0] != "general core":
+                self.logger.info(f" Extracted concepts: {concepts}")
+                return concepts
         
-        # Parse the response into concept list
-        concepts = []
-        if response:
-            lines = response.strip().split('\n')
-            for line in lines:
-                line = line.strip()
-                # Remove numbering, bullets, and extra formatting
-                line = line.lstrip('0123456789.-•* ')
-                if line and len(line.split()) <= 2:  # Max 2 words per concept
-                    concepts.append(line)
-        
-        # Limit to reasonable number of concepts
-        concepts = concepts[:7]
-        
-        self.logger.debug(f"Extracted concepts: {concepts}")
-        return concepts
+        # Enhanced fallback - if extraction fails, pass input directly
+        self.logger.warning(f" Concept extraction failed for: {text[:50]}...")
+        self.logger.info(" Using direct text fallback - bypassing concept extraction")
+        # Return special flag to indicate direct processing
+        return ["__DIRECT_PROCESSING__", text]
