@@ -47,13 +47,11 @@ def build_big_colour_model(apertus_path: str = "models/apertus", force_rebuild: 
         raise FileNotFoundError(f"No safetensor files found in: {apertus_path}")
     
     print(f"Found {len(safetensor_files)} safetensor files")
-    use_mock = False
     
     # Initialize weight translator with full vocabulary extraction
     translator = ApertusWeightTranslator(
         apertus_path=apertus_path,
         spectrum_dims=512,
-        use_mock=use_mock,
         max_tokens=None,  # Auto-detect vocabulary size
         extract_full_vocab=True,
         force_rebuild=force_rebuild
@@ -222,7 +220,6 @@ def main():
     parser.add_argument("--apertus-path", default="models/apertus", help="Path to Apertus model files")
     parser.add_argument("--build-model", action="store_true", help="Build Big Colour Model from safetensors")
     parser.add_argument("--test-model", action="store_true", help="Test Big Colour Model encoding/decoding")
-    parser.add_argument("--use-mock", action="store_true", help="Use mock model for testing")
     parser.add_argument("--rebuild-with-full-vocab", action="store_true", help="Force rebuild of Big Colour Model with full 131k vocabulary")
     
     args = parser.parse_args()
@@ -258,28 +255,36 @@ def main():
                 return
     
     # Default behavior: Launch interactive Big Colour ChromaThink system
-    print("Creating Big Colour ChromaThink system...")
-    
+    print("Loading Big Colour ChromaThink system...")
+
     # Enable detailed logging for debugging concept extraction and synthesis
     for logger_name in ['ChromaThink', 'ApertusTranslator', 'BigColourChromatThink', 'LanguageBridge', 'ChromaThink.Bootstrap']:
         logging.getLogger(logger_name).setLevel(logging.INFO)
-    
+
     try:
+        # Create system with force_rebuild=False to prevent accidental model destruction
         chromathink_system = create_big_colour_chromathink(
             apertus_path=args.apertus_path,
-            use_mock=args.use_mock
+            force_rebuild=False  # Never rebuild unless explicitly requested
         )
-        
+
         # Show system info
         stats = chromathink_system.get_system_statistics()
         print(f"System ready with {stats['big_colour_model']['vocab_size']:,} token vocabulary")
-        
+
         # Run interactive session
         run_interactive_session(chromathink_system)
-    
+
+    except FileNotFoundError as e:
+        print(f"Big Colour Model not found: {e}")
+        print("\nTo build the model, use one of these commands:")
+        print("  python chromathink_chat.py --build-model")
+        print("  python chromathink_chat.py --rebuild-with-full-vocab")
+        print("\nWARNING: Building a new model will create a blank canvas and destroy any training data.")
+        return
     except Exception as e:
         print(f"Failed to initialize Big Colour system: {e}")
-        print("System initialization failed - Apertus model is required")
+        print("System initialization failed")
         return
 
 

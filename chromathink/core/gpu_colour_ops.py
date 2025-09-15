@@ -109,29 +109,38 @@ class GPUColourAccelerator:
         return result
     
     @tf.function(reduce_retracing=True)
-    def _parallel_interference_reduction(self, 
+    def _parallel_interference_reduction(self,
                                        colour_stack: tf.Tensor,
                                        interference_type: str) -> tf.Tensor:
         """Parallel reduction of colour interference using GPU."""
-        
-        # Use tf.scan for parallel reduction
-        def interference_step(acc, current_colour):
-            return self._gpu_interference_kernel(acc, current_colour)
-        
-        # Initialize with first colour
-        initial_colour = colour_stack[0]
-        remaining_colours = colour_stack[1:]
-        
-        # Parallel scan reduction
-        result = tf.scan(
-            interference_step,
-            remaining_colours,
-            initializer=initial_colour,
-            parallel_iterations=10  # Allow parallel execution
+
+        # Get stack size
+        stack_size = tf.shape(colour_stack)[0]
+
+        # If only one colour, return it
+        if_single = lambda: colour_stack[0]
+
+        # For multiple colours, use iterative interference
+        def if_multiple():
+            result = colour_stack[0]
+            i = 1
+
+            # Use tf.while_loop instead of tf.scan to avoid empty tensor issues
+            def condition(i, result):
+                return i < stack_size
+
+            def body(i, result):
+                result = self._gpu_interference_kernel(result, colour_stack[i])
+                return i + 1, result
+
+            _, final_result = tf.while_loop(condition, body, [i, result])
+            return final_result
+
+        return tf.cond(
+            stack_size <= 1,
+            if_single,
+            if_multiple
         )
-        
-        # Return final result
-        return result[-1]
     
     @tf.function(reduce_retracing=True)
     def _gpu_interference_kernel(self, wave1: tf.Tensor, wave2: tf.Tensor) -> tf.Tensor:
@@ -168,7 +177,9 @@ class GPUColourAccelerator:
         # Construct complex result - ensure proper complex multiplication
         # Convert amplitude to complex64 for proper dtype matching
         complex_amplitude = tf.cast(interference_amp, tf.complex64)
-        phase_factor = tf.exp(tf.complex(tf.cast(0.0, tf.float32), interference_phase))
+        # Cast phase to complex64 to match complex_amplitude dtype
+        phase_factor = tf.exp(tf.complex(tf.cast(0.0, tf.float32), tf.cast(interference_phase, tf.float32)))
+        phase_factor = tf.cast(phase_factor, tf.complex64)
         result = complex_amplitude * phase_factor
 
         return result
@@ -210,13 +221,15 @@ class GPUColourAccelerator:
         
         # Apply each resonance matrix
         def apply_resonance(matrix):
-            return self._single_resonance_step(batch_input, matrix, num_iterations)
-        
+            result = self._single_resonance_step(batch_input, matrix, num_iterations)
+            # Ensure result has correct shape
+            return tf.squeeze(result, axis=0)  # Remove batch dimension
+
         # Map over all matrices
         resonance_results = tf.map_fn(
             apply_resonance,
             matrix_stack,
-            fn_output_signature=tf.TensorSpec([None, self.spectrum_dims], dtype=tf.complex64),
+            fn_output_signature=tf.TensorSpec([self.spectrum_dims], dtype=tf.complex64),
             parallel_iterations=10
         )
         
@@ -240,13 +253,16 @@ class GPUColourAccelerator:
 
         for i in tf.range(num_iterations):
             # Apply resonance transformation
-            real_part = tf.linalg.matvec(resonance_matrix, tf.real(state))
-            imag_part = tf.linalg.matvec(resonance_matrix, tf.imag(state))
+            real_part = tf.linalg.matvec(resonance_matrix, tf.math.real(state))
+            imag_part = tf.linalg.matvec(resonance_matrix, tf.math.imag(state))
 
             transformed = tf.complex(real_part, imag_part)
 
             # Mix with original (partial feedback) - ensure complex64 arithmetic
-            feedback_strength = tf.cast(0.3 * tf.cast(i + 1, tf.float32) / tf.cast(num_iterations, tf.float32), tf.complex64)
+            i_float = tf.cast(i + 1, tf.float32)
+            num_iter_float = tf.cast(num_iterations, tf.float32)
+            feedback_ratio = 0.3 * i_float / num_iter_float
+            feedback_strength = tf.cast(feedback_ratio, tf.complex64)
             one_minus_feedback = tf.cast(1.0, tf.complex64) - feedback_strength
             state = one_minus_feedback * state + feedback_strength * transformed
 
@@ -284,10 +300,11 @@ class GPUColourAccelerator:
         # Dominant frequencies (top 5 for each colour)
         _, top_freq_indices = tf.nn.top_k(power_spectrum, k=5)
         
-        # Phase coherence
-        phase_coherence = tf.abs(tf.reduce_mean(
-            tf.exp(tf.complex(0.0, tf.angle(colours))), axis=-1
-        ))
+        # Phase coherence - ensure proper complex dtype
+        angles = tf.math.angle(colours)
+        zero_real = tf.cast(0.0, tf.float32)
+        complex_exp = tf.exp(tf.complex(zero_real, angles))
+        phase_coherence = tf.abs(tf.reduce_mean(complex_exp, axis=-1))
         
         return {
             'fft_spectrum': fft_colours,
@@ -315,11 +332,13 @@ class GPUColourAccelerator:
         # Parallel similarity computation
         similarities = self._batch_colour_similarity(query_expanded, memory_colours)
         
-        # Weight by memory strengths
-        weighted_similarities = similarities * memory_strengths
+        # Weight by memory strengths - ensure dtype compatibility
+        memory_strengths_cast = tf.cast(memory_strengths, similarities.dtype)
+        weighted_similarities = similarities * memory_strengths_cast
         
-        # Get top-k most similar
-        top_similarities, top_indices = tf.nn.top_k(weighted_similarities, k=top_k)
+        # Get top-k most similar - use magnitude for complex numbers
+        weighted_magnitudes = tf.abs(weighted_similarities) if weighted_similarities.dtype == tf.complex64 else weighted_similarities
+        top_similarities, top_indices = tf.nn.top_k(weighted_magnitudes, k=top_k)
         
         return top_similarities, top_indices
     
@@ -351,17 +370,19 @@ class GPUColourAccelerator:
         max_mag = tf.reduce_max(magnitude)
 
         # Prevent explosion - ensure complex division
+        max_mag_complex = tf.cast(max_mag, tf.complex64)
         colour = tf.cond(
             max_mag > 10.0,
-            lambda: colour / tf.cast(max_mag / 2.0, tf.complex64),
+            lambda: colour / (max_mag_complex / tf.cast(2.0, tf.complex64)),
             lambda: colour
         )
 
         # Prevent collapse - ensure complex multiplication
         mean_mag = tf.reduce_mean(tf.abs(colour))
+        mean_mag_complex = tf.cast(mean_mag, tf.complex64)
         colour = tf.cond(
             mean_mag < 0.01,
-            lambda: colour * tf.cast(0.1 / (mean_mag + 1e-8), tf.complex64),
+            lambda: colour * tf.cast(0.1, tf.complex64) / (mean_mag_complex + tf.cast(1e-8, tf.complex64)),
             lambda: colour
         )
 

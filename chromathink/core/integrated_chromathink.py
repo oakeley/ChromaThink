@@ -33,11 +33,10 @@ class IntegratedChromaThink:
     - Language is preserved (input language = output language)
     """
     
-    def __init__(self, 
+    def __init__(self,
                  apertus_path: str = "models/apertus",
                  spectrum_dims: int = 512,
                  num_resonance_chambers: int = 5,
-                 use_mock_apertus: bool = False,
                  gpu_acceleration: bool = True):
         
         self.spectrum_dims = spectrum_dims
@@ -50,8 +49,7 @@ class IntegratedChromaThink:
         # Initialize Apertus translator (ONLY for translation)
         self.translator = ApertusTranslator(
             apertus_path=apertus_path,
-            spectrum_dims=spectrum_dims,
-            use_mock=use_mock_apertus
+            spectrum_dims=spectrum_dims
         )
         
         # Initialize ChromaThink core (ONLY for thinking)
@@ -534,8 +532,7 @@ class IntegratedChromaThink:
 def create_integrated_chromathink(
     apertus_path: str = "models/apertus",
     spectrum_dims: int = 512,
-    gpu_acceleration: bool = True,
-    use_mock_apertus: bool = False
+    gpu_acceleration: bool = True
 ) -> IntegratedChromaThink:
     """
     Factory function to create IntegratedChromaThink system with recommended settings.
@@ -544,7 +541,6 @@ def create_integrated_chromathink(
         apertus_path: Path to Apertus model files
         spectrum_dims: Number of colour spectrum dimensions
         gpu_acceleration: Enable GPU acceleration for colour mathematics
-        use_mock_apertus: Use mock Apertus translator (for testing)
     
     Returns:
         Configured IntegratedChromaThink system
@@ -554,6 +550,5 @@ def create_integrated_chromathink(
         apertus_path=apertus_path,
         spectrum_dims=spectrum_dims,
         num_resonance_chambers=5,
-        use_mock_apertus=use_mock_apertus,
         gpu_acceleration=gpu_acceleration
     )

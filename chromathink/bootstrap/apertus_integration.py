@@ -42,19 +42,17 @@ class ApertusWeightTranslator:
     We're essentially performing synaesthesia on the model's knowledge.
     """
     
-    def __init__(self, 
+    def __init__(self,
                  apertus_path: str = "models/apertus",
                  spectrum_dims: int = 512,
-                 use_mock: bool = False,
                  max_tokens: int = None,  # Auto-detect vocab size by default
                  max_attention_layers: int = 12,
                  max_mlp_layers: int = 8,
                  extract_full_vocab: bool = True,  # Full vocab by default
                  force_rebuild: bool = False):  # Force rebuild cache
-        
+
         self.apertus_path = Path(apertus_path)
         self.spectrum_dims = spectrum_dims
-        self.use_mock = use_mock
         self.max_tokens = max_tokens
         self.max_attention_layers = max_attention_layers
         self.max_mlp_layers = max_mlp_layers
@@ -73,10 +71,7 @@ class ApertusWeightTranslator:
         logging.basicConfig(level=logging.INFO)
         self.logger = logging.getLogger("ChromaThink.Bootstrap")
         
-        if self.use_mock:
-            self.logger.info("Using mock Apertus model (use_mock=True)")
-            self.create_mock_apertus()
-        elif not TRANSFORMERS_AVAILABLE:
+        if not TRANSFORMERS_AVAILABLE:
             raise ImportError("transformers library not available - install with: pip install transformers")
         elif not SAFETENSORS_AVAILABLE:
             raise ImportError("safetensors library not available - install with: pip install safetensors")
@@ -85,72 +80,11 @@ class ApertusWeightTranslator:
             self.load_apertus_from_safetensors()
         
         # Auto-detect vocabulary size from model
-        if not self.use_mock:
-            self._detect_vocabulary_size()
+        self._detect_vocabulary_size()
         
         # Check for cached weights first
         self.weight_patterns = self._load_or_create_weight_patterns()
         
-    def create_mock_apertus(self):
-        """Create a mock Apertus model for testing/development"""
-        self.logger.info("Creating mock Apertus model...")
-        
-        # Create mock tokenizer
-        class MockTokenizer:
-            def __init__(self):
-                self.vocab_size = 32000
-                self.vocab = {f"token_{i}": i for i in range(self.vocab_size)}
-                self.vocab.update({
-                    "what": 1000, "why": 1001, "how": 1002, "when": 1003, "where": 1004, "who": 1005,
-                    "think": 2000, "feel": 2001, "know": 2002, "understand": 2003, "learn": 2004,
-                    "colour": 3000, "sound": 3001, "light": 3002, "pattern": 3003, "meaning": 3004
-                })
-            
-            def encode(self, text, add_special_tokens=False):
-                words = text.lower().split()
-                return [self.vocab.get(word, 0) for word in words]
-        
-        # Create mock model
-        class MockModel:
-            def __init__(self, vocab_size, hidden_size):
-                self.vocab_size = vocab_size
-                self.hidden_size = hidden_size
-                
-                # Create mock embeddings
-                self.embed_tokens = torch.nn.Embedding(vocab_size, hidden_size)
-                
-                # Create mock attention layers
-                self.attention_layers = []
-                for i in range(4):  # 4 layers for mock
-                    layer = {
-                        'q_proj': torch.nn.Linear(hidden_size, hidden_size),
-                        'k_proj': torch.nn.Linear(hidden_size, hidden_size),
-                        'v_proj': torch.nn.Linear(hidden_size, hidden_size),
-                        'mlp_gate': torch.nn.Linear(hidden_size, hidden_size * 4),
-                        'mlp_up': torch.nn.Linear(hidden_size, hidden_size * 4),
-                        'mlp_down': torch.nn.Linear(hidden_size * 4, hidden_size)
-                    }
-                    self.attention_layers.append(layer)
-                
-            def named_parameters(self):
-                """Mock named_parameters for weight analysis"""
-                params = []
-                
-                # Embedding weights
-                params.append(('embed_tokens.weight', self.embed_tokens.weight))
-                
-                # Layer weights
-                for i, layer in enumerate(self.attention_layers):
-                    for name, module in layer.items():
-                        params.append((f'layers.{i}.self_attn.{name}.weight', module.weight))
-                        if hasattr(module, 'bias') and module.bias is not None:
-                            params.append((f'layers.{i}.self_attn.{name}.bias', module.bias))
-                
-                return params
-        
-        self.tokenizer = MockTokenizer()
-        self.model = MockModel(vocab_size=32000, hidden_size=512)
-        self.logger.info("Mock Apertus model created successfully")
         
     def _detect_vocabulary_size(self):
         """Auto-detect the actual vocabulary size from model weights."""
@@ -178,12 +112,10 @@ class ApertusWeightTranslator:
                 self.actual_vocab_size = config.get('vocab_size', 131072)
                 self.logger.info(f"Vocabulary size from config: {self.actual_vocab_size:,} tokens")
             else:
-                self.actual_vocab_size = 131072  # Default fallback
-                self.logger.warning(f"Could not detect vocab size, using default: {self.actual_vocab_size:,}")
-                
+                raise FileNotFoundError("config.json not found and no embedding weights available for vocab size detection")
+
         except Exception as e:
-            self.logger.warning(f"Failed to detect vocab size: {e}, using default: 131072")
-            self.actual_vocab_size = 131072
+            raise RuntimeError(f"Failed to detect vocabulary size: {e}. Cannot proceed without valid model.")
         
     def load_apertus_from_safetensors(self):
         """
@@ -369,9 +301,7 @@ class ApertusWeightTranslator:
                 
             self.logger.info(f"Successfully extracted colour patterns from {max_tokens} token embeddings")
         else:
-            self.logger.warning("Could not find embedding weights, creating synthetic patterns")
-            # Create synthetic token colours
-            patterns['token_colours'] = self.create_synthetic_token_colours()
+            raise RuntimeError("Could not find embedding weights in model. Cannot proceed without valid token embeddings.")
         
         # Extract attention patterns (these encode relationships)
         attention_patterns = []
@@ -405,8 +335,7 @@ class ApertusWeightTranslator:
                     self.logger.debug(f"Processed attention layer {attention_count}: {name}, shape: {weight.shape}")
         
         if not attention_patterns:
-            self.logger.warning("No attention patterns found, creating synthetic ones")
-            attention_patterns = [self.create_synthetic_attention_pattern() for _ in range(4)]
+            raise RuntimeError("No attention patterns found in model weights. Cannot proceed without valid attention layers.")
         
         patterns['attention_colours'] = np.array(attention_patterns)
         
@@ -442,8 +371,7 @@ class ApertusWeightTranslator:
                     self.logger.debug(f"Processed MLP layer {mlp_count}: {name}, shape: {weight.shape}")
         
         if not mlp_patterns:
-            self.logger.warning("No MLP patterns found, creating synthetic ones")
-            mlp_patterns = [self.create_synthetic_mlp_pattern() for _ in range(4)]
+            raise RuntimeError("No MLP patterns found in model weights. Cannot proceed without valid MLP layers.")
         
         patterns['transformation_colours'] = np.array(mlp_patterns)
         
@@ -453,40 +381,6 @@ class ApertusWeightTranslator:
         
         return patterns
     
-    def create_synthetic_token_colours(self):
-        """Create synthetic token colours for testing"""
-        np.random.seed(42)  # Deterministic
-        vocab_size = getattr(self.tokenizer, 'vocab_size', 32000)
-        
-        # Create meaningful patterns for important tokens
-        colours = []
-        for i in range(min(vocab_size, 10000)):  # Limit for memory
-            # Create token-specific frequency pattern
-            base_freq = (i % 100) / 100.0 * 2 * np.pi
-            pattern = np.zeros(self.spectrum_dims, dtype=complex)
-            
-            # Add harmonics based on token properties
-            for h in range(1, 6):  # 5 harmonics
-                amplitude = 1.0 / h
-                phase = base_freq * h + np.random.random() * 2 * np.pi
-                freq_idx = (h * i) % self.spectrum_dims
-                pattern[freq_idx] = amplitude * np.exp(1j * phase)
-            
-            colours.append(pattern)
-        
-        return np.array(colours)
-    
-    def create_synthetic_attention_pattern(self):
-        """Create synthetic attention pattern"""
-        np.random.seed(42)
-        pattern = np.random.randn(self.spectrum_dims) + 1j * np.random.randn(self.spectrum_dims)
-        return pattern / np.linalg.norm(pattern)
-    
-    def create_synthetic_mlp_pattern(self):
-        """Create synthetic MLP pattern"""
-        np.random.seed(42)
-        pattern = np.random.randn(self.spectrum_dims) + 1j * np.random.randn(self.spectrum_dims)
-        return pattern / np.linalg.norm(pattern)
     
     def weights_to_colour_spectrum(self, weight_matrix):
         """
@@ -641,24 +535,8 @@ class ApertusWeightTranslator:
                     beat_pattern = 0.2 * np.sin(spatial_freq * beat_freq) * np.exp(1j * spatial_freq * beat_freq)
                     interference_pattern += beat_pattern
             
-        except np.linalg.LinAlgError:
-            # Fallback: Create synthetic interference from weight statistics
-            self.logger.warning("SVD failed, using statistical interference model")
-            
-            # Use weight statistics to create interference
-            weight_mean = np.mean(attention_weights, axis=1, keepdims=True)
-            weight_std = np.std(attention_weights, axis=1, keepdims=True)
-            
-            # Create interference based on statistical properties
-            freqs = np.arange(self.spectrum_dims) / self.spectrum_dims * 2 * np.pi
-            for i, (mean, std) in enumerate(zip(weight_mean.flatten(), weight_std.flatten())):
-                # Interference frequency based on statistics
-                interference_freq = (mean + 1) * (i + 1)
-                amplitude = std + 0.1
-                phase = np.angle(mean + 1j * std)
-                
-                wave = amplitude * np.exp(1j * (freqs * interference_freq + phase))
-                interference_pattern += wave
+        except np.linalg.LinAlgError as e:
+            raise RuntimeError(f"SVD decomposition failed for attention weights: {e}. Cannot process attention patterns.")
         
         # Normalize while preserving relative phase relationships
         max_amplitude = np.max(np.abs(interference_pattern))
@@ -740,8 +618,7 @@ class ApertusWeightTranslator:
         self.logger.info("Building Big Colour Model from weight patterns...")
 
         if not hasattr(self, 'weight_patterns') or not self.weight_patterns:
-            self.logger.warning("No weight patterns available, building from synthetic data")
-            self.weight_patterns = self.analyse_apertus_weights()
+            raise RuntimeError("No weight patterns available. Cannot build Big Colour Model without analysed weights.")
         
         # Build comprehensive concept encoder
         self.concept_encoder = ConceptEncoder(
@@ -817,7 +694,7 @@ class ConceptEncoder:
             if approx_idx < len(self.token_colours):
                 word_map[word] = self.token_colours[approx_idx]
             else:
-                # Create synthetic colour for missing words
+                # Use hash to map to existing token colours for unknown words
                 word_hash = hash(word) % len(self.token_colours)
                 word_map[word] = self.token_colours[word_hash]
         

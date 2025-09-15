@@ -38,15 +38,13 @@ class ApertusTranslator:
     It does NOT generate responses - it only translates concepts.
     """
     
-    def __init__(self, 
+    def __init__(self,
                  apertus_path: str = "models/apertus",
                  spectrum_dims: int = 512,
-                 use_mock: bool = False,
                  device: str = 'auto'):
         
         self.apertus_path = Path(apertus_path)
         self.spectrum_dims = spectrum_dims
-        self.use_mock = use_mock
         self.device = device
         self.logger = logging.getLogger("ApertusTranslator")
         

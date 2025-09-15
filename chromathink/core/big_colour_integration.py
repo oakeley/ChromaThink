@@ -31,10 +31,9 @@ class BigColourChromatThink:
     4. NO pre-programmed responses - all from colour dynamics
     """
     
-    def __init__(self, 
+    def __init__(self,
                  apertus_path: str = "models/apertus",
                  spectrum_dims: int = 512,
-                 use_mock: bool = False,
                  force_rebuild: bool = False,
                  gpu_acceleration: bool = True):
         
@@ -53,9 +52,9 @@ class BigColourChromatThink:
         self.conversation_context = []
         
         self.logger.info("Initializing Big Colour ChromaThink System...")
-        self._initialize_system(apertus_path, use_mock, force_rebuild, gpu_acceleration)
+        self._initialize_system(apertus_path, force_rebuild, gpu_acceleration)
     
-    def _initialize_system(self, apertus_path: str, use_mock: bool, force_rebuild: bool, gpu_acceleration: bool):
+    def _initialize_system(self, apertus_path: str, force_rebuild: bool, gpu_acceleration: bool):
         """Initialize all system components."""
         
         # 1. Initialize GPU acceleration if requested
@@ -78,7 +77,6 @@ class BigColourChromatThink:
         self.weight_translator = ApertusWeightTranslator(
             apertus_path=apertus_path,
             spectrum_dims=self.spectrum_dims,
-            use_mock=use_mock,
             extract_full_vocab=True,  # All tokens (auto-detected)
             max_tokens=None,  # Auto-detect vocabulary size
             force_rebuild=force_rebuild
@@ -479,14 +477,19 @@ class LanguageBridge:
         waveform = np.zeros(self.spectrum_dims, dtype=np.complex64)
 
         for wavelength, frequency, intensity in light_patterns:
+            # Extract real parts for calculations that need real numbers
+            real_wavelength = np.real(wavelength) if np.iscomplexobj(wavelength) else wavelength
+            real_frequency = np.real(frequency) if np.iscomplexobj(frequency) else frequency
+            real_intensity = np.real(intensity) if np.iscomplexobj(intensity) else intensity
+
             # Map frequency to waveform index
             # Use logarithmic mapping for better frequency distribution
-            freq_index = int((np.log10(frequency) - 14) * self.spectrum_dims / 2)  # 10^14 to 10^16 Hz range
+            freq_index = int((np.log10(real_frequency) - 14) * self.spectrum_dims / 2)  # 10^14 to 10^16 Hz range
             freq_index = max(0, min(freq_index, self.spectrum_dims - 1))
 
             # Create complex amplitude with phase based on wavelength
-            phase = (wavelength % 360) * np.pi / 180  # Convert wavelength to phase
-            amplitude = intensity * np.exp(1j * phase)
+            phase = (real_wavelength % 360) * np.pi / 180  # Convert wavelength to phase
+            amplitude = real_intensity * np.exp(1j * phase)
 
             # Add to waveform with Gaussian spread for smoothness
             for i in range(max(0, freq_index - 5), min(self.spectrum_dims, freq_index + 6)):
@@ -551,7 +554,6 @@ class LanguageBridge:
 
 
 def create_big_colour_chromathink(apertus_path: str = "models/apertus",
-                                  use_mock: bool = False,
                                   force_rebuild: bool = False,
                                   gpu_acceleration: bool = True) -> BigColourChromatThink:
     """
@@ -566,7 +568,6 @@ def create_big_colour_chromathink(apertus_path: str = "models/apertus",
     system = BigColourChromatThink(
         apertus_path=apertus_path,
         spectrum_dims=512,
-        use_mock=use_mock,
         force_rebuild=force_rebuild,
         gpu_acceleration=gpu_acceleration
     )

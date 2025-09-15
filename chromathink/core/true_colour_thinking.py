@@ -425,7 +425,7 @@ class IntegratedChromaThink:
     Complete system integrating Apertus translation with ChromaThink thinking.
     """
     
-    def __init__(self, apertus_path: str = "models/apertus", spectrum_dims: int = 512, use_mock_apertus: bool = False, gpu_acceleration: bool = False):
+    def __init__(self, apertus_path: str = "models/apertus", spectrum_dims: int = 512, gpu_acceleration: bool = False):
         self.logger = logging.getLogger("IntegratedChromaThink")
         
         # Initialise components
@@ -506,11 +506,10 @@ class IntegratedChromaThink:
         return response_text
 
 
-def create_integrated_chromathink(apertus_path: str = "models/apertus", 
+def create_integrated_chromathink(apertus_path: str = "models/apertus",
                                 spectrum_dims: int = 512,
-                                use_mock_apertus: bool = False,
                                 gpu_acceleration: bool = False) -> IntegratedChromaThink:
     """
     Factory function to create integrated ChromaThink system.
     """
-    return IntegratedChromaThink(apertus_path=apertus_path, spectrum_dims=spectrum_dims, use_mock_apertus=use_mock_apertus, gpu_acceleration=gpu_acceleration)
+    return IntegratedChromaThink(apertus_path=apertus_path, spectrum_dims=spectrum_dims, gpu_acceleration=gpu_acceleration)
